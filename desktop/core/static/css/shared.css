@@ -330,10 +330,12 @@ span.table-th-resizer {
 
 table a.ccs-table_config_link {
 	display: inline-block;
-	float: right;
 	width: 16px;
 	height: 16px;
-	background: url(../art/icons/small_cog.png);
+	padding: 0px 4px;
+	background: no-repeat 50% 50% url(../art/icons/small_cog.png);
+	z-index: 10;
+	position: relative;
 }
 table form.ccs-table_config {
 	position: absolute;
@@ -343,8 +345,9 @@ table form.ccs-table_config {
 	-moz-border-radius: 2px;
 	-webkit-border-radius: 2px;
 	min-width: 200px;
-	right: 25px;
+	left: 25px;
 	top: 5px;
+	z-index: 10;
 }
 table form.ccs-table_config label {
 	display: block;
@@ -360,6 +363,15 @@ table form.ccs-table_config ul {
 }
 table form.ccs-table_config li {
 	padding: 2px;
+	border: 1px solid #ccc;
+	border-radius: 2px;
+	-moz-border-radius: 2px;
+	-webkit-border-radius: 2px;
+	margin-bottom: 2px;
+	background: #fff;
+}
+table form.ccs-table_config li input {
+	margin-right: 6px;
 }
 table form.ccs-table_config .art {
 	margin: 4px;

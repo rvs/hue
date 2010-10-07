@@ -73,9 +73,9 @@
       <thead>
         <tr>
           % for i, col in enumerate(active_columns):
-            % if i == len(active_columns) - 1:
+            % if i == 0:
               <th data-filters="CollapsingElements">
-                <a class="collapser ccs-table_config_link"></a>
+                <a class="collapser ccs-table_config_link ccs-left"></a>
                 ${col}
                 <form action="${request_path}" method="GET" class="ccs-hidden collapsible ccs-table_config">
                   <ul>
