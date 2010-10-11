@@ -25,7 +25,7 @@
   <link rel="stylesheet" href="/static/css/windows.css" type="text/css" media="screen" charset="utf-8">
   <link rel="stylesheet" href="/static/css/desktop.css" type="text/css" media="screen" charset="utf-8">
 
-  <script src="/depender/build?client=true&require=dbug,DomReady,Cookie,Element.Dimensions,Element.Style,CCS.Desktop.BackgroundManager,Cookie"></script>
+  <script src="/depender/build?client=true&require=dbug,DomReady,Cookie,Element.Dimensions,Element.Style,ART.Menu,Cookie"></script>
   <!--[if IE 8]>
       <script>
           window.ie8 = true;
@@ -34,6 +34,30 @@
   <script>
   
   window.addEvent('domready', function(){
+    //this method automatically sizes the desktop image to fill the screen
+    var sizer = function(){
+      //get the backgrounds (there may be more than one if rotation is in process)
+      var bgs = $('bg').getElements('.desktop-bg');
+      //get the window dimensions
+      var size = window.getSize();
+      //if the aspect ratio of the window is > 1.6
+      if (size.x/size.y > 1.6) {
+        //then set the width of the image to equal the window
+        bgs.setStyles({
+          width: size.x,
+          height: 'auto'
+        });
+      } else {
+        //else set the height to match the window
+        bgs.setStyles({
+          width: 'auto',
+          height: size.y
+        });
+      }
+    };
+    //when the window is resized, resize the background
+    window.addEvent('resize', sizer);
+    
     if (Browser.Engine.trident) {
       //if we're in IE, there's a note about the fact that Hue doesn't love IE
       //add a click handler for hiding this note.
@@ -48,9 +72,11 @@
     }
     var appName = "Hue";
     Depender.require({
-      scripts: ["CCS.Request", "CCS.User", "CCS.Desktop.Config", "CCS.Desktop.FlashMessage",
+      scripts: ["CCS.Request", "CCS.User", "CCS.Desktop", "CCS.Desktop.Config", "CCS.Desktop.FlashMessage", 
         "CCS.Desktop.Keys", "CCS.Login", "StickyWin.PointyTip", "Element.Delegation", "Fx.Tween", "Fx.Elements"],
       callback: function(){
+        //before fading in the screen, resize the background to match the window size
+        sizer();
         //get the background images
         var bgEls = $('bg').getElements('img');
         //include the background container
@@ -64,6 +90,8 @@
         new Fx.Elements(bgEls, {
           duration: 500
         }).start(styles);
+        //when the user clicks the hue logo, rotate the background
+        $(document.body).addEvent('click:relay(img.desktop-logo)', rotateBG);
         
         //configure the clientcide assets location.
         Clientcide.setAssetLocation("/static/js/ThirdParty/clientcide/Assets");
@@ -178,6 +206,164 @@
   <ul id="desktop-menu" class="desktop-menu" style="position:absolute; top: -100000px;">
   </ul>
   <div id="bg">
+    <script>
+      (function(){
+        /*
+          this array is the "pretty name" list of background images.
+          in theory, this could be a json definition on the back end...
+          
+          At the moment, these correspond to images in /static/art/desktops by index,
+          so "Pencil Tips" below maps to 1.jpg. Clunky, I know.
+          
+          Also, because the logos are color matched (their hue is changed to match, get it?),
+          there has to be a corresponding 1.logo.jpg in the same directory.
+        */
+        var bgNames = [
+          'Pencil Tips',
+          'Color Pencils',
+          'Pencil Tips2',
+          'Painted Wood',
+          'Purple Flower',
+          'Pantone Cards',
+          'Blue Windows',
+          'Tree Frog',
+          'Red Wood',
+          'Hadoop!',
+          'Fuzzy Sparkles',
+          'Green Leaves',
+          'Pastels'
+        ];
+        //and these are static colors
+        var bgColors = {
+          'Solid Grey': '#444',
+          'Rich Blue': '#2f6390',
+          'Grey Green': '#5F7D5F',
+          'Khaki': '#E0DCAD'
+        };
+        //get the user's previous choice which we stored in a cookie
+        var pref = Cookie.read('bgPref'),
+            r;
+        //if they have a pref and it's one of the images, use that
+        if (pref && bgNames.contains(pref)) r = bgNames.indexOf(pref);
+        //otherwise pick a random one
+        else r = $random(1, bgNames.length);
+        //inject a random background
+        document.write('<img src="/static/art/desktops/' + r + '.jpg" class="desktop-bg"><img src="/static/art/desktops/' + r + '.logo.png" class="desktop-logo">');
+        //if they have a pref and it's a static color, hide the image
+        //and set the background color
+        if (pref && bgColors[pref]) {
+          $$('.desktop-bg')[0].setStyle('opacity', 0);
+          $('bg').setStyle('background-color', bgColors[pref]);
+        }
+        //background rotation function
+        this.rotateBG = function(filename){
+          //grab the images there now
+          var bg = $('bg').getElement('.desktop-bg');
+          var logo = $('bg').getElement('.desktop-logo');
+          //if a filename was specified, use it
+          if (filename) {
+            r = filename;
+          } else {
+            //otherwise use the index
+            //because the file names are not zero-indexed
+            //add 1
+            if (r < bgNames.length) r++;
+            else r = 1; 
+          }
+          //inject the image and icon
+          new Element('img', {
+            src: '/static/art/desktops/' + r + '.logo.png',
+            'class': 'desktop-logo'
+          }).inject($('bg'), 'top');
+          new Element('img', {
+            src: '/static/art/desktops/' + r + '.jpg',
+            'class': 'desktop-bg',
+            styles: bg.getStyles('width', 'height'),
+            events: {
+              load: function(){
+                //after they load, crossfade
+                new Fx.Elements([bg, logo], {duration: 500}).start({
+                  '0': {
+                    'opacity': 0
+                  },
+                  '1': {
+                    'opacity': 0
+                  }
+                }).chain(function(){
+                  bg.destroy();
+                  logo.destroy();
+                });
+              }
+            }
+          }).inject($('bg'), 'top');
+        };
+        //now we create the menu
+        //first we list all the names
+        bgNames.each(function(name, i){
+          new Element('li', {
+            'class': 'menu-item'
+          }).inject('desktop-menu').adopt(
+            new Element('a', {
+              html: name,
+              'class': i == r ? 'current' : ''
+            })
+          );
+        });
+        //a separator
+        new Element('li', {
+          'class': 'menu-separator'
+        }).inject('desktop-menu');
+        //and then all the static colors
+        for (name in bgColors){
+          new Element('li', {
+            'class': 'menu-item'
+          }).inject('desktop-menu').adopt(
+            new Element('a', {
+              html: name,
+              'data-bgcolor': bgColors[name],
+              'class': name == pref ? 'current' : ''
+            })
+          );
+        }
+        //finally, we create a new instance of ART.Menu for the background container
+        Depender.require({
+          scripts: ["ART.Menu"],
+          callback: function(){
+            ART.Sheet.define('menu.art.desktop-menu', {
+              'z-index': 10002
+            });
+            
+            var menu = new ART.Menu({
+              className: 'art desktop-menu',
+              startEvent: 'contextmenu',
+              tabIndex: 10,
+              onPress: function(link){
+                //when an item is chosen
+                var links = $('desktop-menu').getElements('a');
+                //remove the current flag from which everone is current
+                links.removeClass('current');
+                //get the index of the new one
+                var index = links.indexOf(link);
+                //if the index is < the names list length, cross fade the image
+                if (index < bgNames.length) {
+                  rotateBG(index + 1);
+                  Cookie.write('bgPref', index);
+                } else {
+                // else we hide the image and set the background color to the static color
+                  Cookie.write('bgPref', link.get('html'));
+                  $('bg').tween('background-color', link.get('data-bgcolor'));
+                  var bg = $$('.desktop-bg')[0];
+                  bg.tween('opacity', 0).get('tween').chain(function(){
+                    bg.setStyle('visibility', 'visible');
+                  });
+                }
+                link.addClass('current');
+              }
+            }, $('desktop-menu'), $('bg')).inject($('ccs-desktop'));
+          }
+        });
+      })();
+    </script>
   </div>
   <div id="browserWarn">Hue is best experienced in <a target="browsers" href="http://getfirefox.com">Mozilla Firefox</a>, <a target="browsers" href="http://www.apple.com/safari/">Apple Safari</a>, or <a target="browsers" href="http://www.google.com/chrome">Google Chrome</a> <a id="closeWarning"></a></div>
   <div id="ccs-desktop" class="ccs-shared">
@@ -215,14 +401,8 @@
   </div>
 
     <script>
-    (function(){
-      var state = CCS.Desktop.getState();
-      var options = {};
-      if (state.background) options.current = state.background;
-      new BackgroundManager($('bg'), $('desktop-menu'), options);
       if (Browser.Engine.trident) $(document.body).addClass('IEroot');
       $(document.body).addClass(Browser.Engine.name);
-    })();
     </script>
 </body>
 </html>
