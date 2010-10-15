@@ -50,6 +50,7 @@ sources: [
   Source/JFrameLinkers/CCS.JFrame.Target.js,
   Source/Native/String.CCS.js,
   Source/Native/Element.Data.js,
+  Source/Native/Number.Files.js,
   Source/StaticThirdParty/DynamicTextarea.js,
   Source/UI/ART.SideBySideSelect.js,
   Source/BehaviorFilters/Behavior.CollapsingElements.js,
