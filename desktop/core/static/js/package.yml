@@ -33,6 +33,7 @@ sources: [
   Source/CCS/HueChart.Box.js,
   Source/CCS/HueChart.Area.js,
   Source/CCS/HueChart.Line.js,
+  Source/CCS/HueChart.Circle.js,
   Source/Forms/Form.Request.JSON.js,
   Source/Forms/EditInline.js,
   Source/UI/StickyWin.Drawer.js,

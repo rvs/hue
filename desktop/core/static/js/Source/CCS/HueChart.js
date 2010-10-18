@@ -53,16 +53,17 @@ HueChart = new Class({
                 //The font which will be used for the axis labels.
                 labelFont: '14px sans-serif',
                 //The height of the x axis rules
-                xTickHeight: 10
+                xTickHeight: 10,
                 /*width: the initial width of the chart,
                   height: the initial height of the chart,
-                  dataTable: the table containing the chart data, 
-                  bottomPadding: the padding between the bottom of the element, and the bottom of the graph,
-                  topPadding: the padding between the top of the element, and the left of the graph,
-                  leftPadding: the padding between the left of the element, and the left of the graph,
-                  rightPadding: the padding between the right of the element, and the right of the graph,
+                  dataTable: the table containing the chart data,
+                  dataObject: array of data objects,
                   onSetupChart: function that runs when the chart is being setup, takes the protovis objects as an argument
                 */
+                  bottomPadding: 0, // the padding between the bottom of the element, and the bottom of the graph,
+                  topPadding: 0, // the padding between the top of the element, and the left of the graph,
+                  leftPadding: 0, // the padding between the left of the element, and the left of the graph,
+                  rightPadding: 0 // the padding between the right of the element, and the right of the graph,
         },
 
 
@@ -76,6 +77,8 @@ HueChart = new Class({
                 if (this.options.dataTable) {
                         this.data = new HueChart.Data(HueChart.buildData(this.options.dataTable));
                         this.options.dataTable.hide();
+                } else {
+                        this.data = new HueChart.Data(this.options.dataObject);
                 }
         },
 
@@ -105,10 +108,16 @@ HueChart = new Class({
                 this.fireEvent('setupChart', this.vis);
                 this.vis.render();
         },
-
+        
+        //Returns selected data index
         getSelectedIndex: function() {
                 return this.selected_index;
-        }
+        },
+        
+        //Sets selected data index
+        setSelectedIndex: function(index) {
+                this.selected_index = index;
+        } 
 });
 
 //Wrapper for data object to be charted.
@@ -174,6 +183,9 @@ HueChart.Data = new Class({
                 return this.getExtreme('valley', seriesToInclude, pv.min);
         },
         
+        getSeriesSum: function(series) {
+                return pv.sum(this.dataObjects, function(d) { return d[series]; });
+        },
                
         //Get an extreme value from the data table.
         //seriesToInclude can be a single field in the data object or an array of fields. 
