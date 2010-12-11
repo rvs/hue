@@ -48,11 +48,16 @@ HueChart.Box = new Class({
                 verticalTickSpacing: 35, //the distance between vertical ticks
                 xTickHeight: 10, //the height of the xTick marks.
                 labels:{x:"X", y: "Y"}, //the labels that should be used for each axis
-                selectColor: "rgba(255, 128, 128, .4)", //the color that should be used to fill selections in this chart
+                selectBarColor: "rgba(0, 0, 0, .2)", //the color that should be used to fill selections in this chart
+                selectBarBorderColor: "rgba(0, 0, 0, 1)", //the color that should be used as a border for selections in this chart
                 selectedIndicatorColor: "black", //color that should be used to show the position of the selected index, when using the position indicator
                 highlightedIndicatorColor: "rgba(255, 255, 255, .5)",
                 yType: 'string', //the type of value that is being graphed on the y-axis,
                 showPointValue: false //show the value at the point when moused over
+                selectable: false, //make the chart selectable
+                //initialSelectValue: {left: 0, right: 0}, //the initial chart selection, must be same type as x values 
+                draggable: false, //make the chart selection draggable,
+                fireSelectOnDrag: true //fires the select event on completion of a drag
                 /*
                 onPointMouseOut: function that should be run when the mouse is moved out of the chart
                 onPointMouseOver: function that should be run when the mouse is moved over a datapoint, takes the dataPoint and index as arguments
@@ -87,6 +92,12 @@ HueChart.Box = new Class({
                         });
                         this.addEvent('seriesMouseOver', this.updatePointValue);
                 }
+                //Initialize dragState and selectState
+                this.dragState = {x: 0, y: 0};
+                this.selectState = {x: 0, dx: 0};
+                //Set this.draggable and this.selectable to reflect whether or not the chart has these capabilities, based on the existence of events and/or options.
+                this.draggable = this.options.draggable || this.hasEvent('drag') || this.hasEvent('dragStart') || this.hasEvent('dragEnd');
+                this.selectable = this.options.selectable || this.draggable || this.hasEvent('spanSelect') || this.hasEvent('select') || this.hasEvent('selectStart') || this.hasEvent('selectEnd');
                 //When the setupChart event is fired, the full ProtoVis visualization is being set up, in preparation for render.
                 //The addGraph function is responsible for adding the actual representation of the data, be that a group of lines, or a group of area graphs.
                 this.addEvent('setupChart', function(vis) {
@@ -103,9 +114,9 @@ HueChart.Box = new Class({
                         //Create panel for capture of events
                         this.eventPanel = vis.add(pv.Panel).fillStyle("rgba(0,0,0,.001)");
                         //If there's a mouse event, add the functionality to capture these events.
-                        //if (this.hasEvent('pointMouseOut') && this.hasEvent('pointMouseOver') || this.hasEvent('pointClick')) this.addMouseEvents(vis);
-                        this.addMouseEvents(vis);
-                        if (this.hasEvent('spanSelect')) this.makeSelectable(vis);
+                        if (this.hasEvent('pointMouseOut') && this.hasEvent('pointMouseOver') || this.hasEvent('pointClick') || this.options.showPointValue) this.addMouseEvents(vis);
+                        //If there is a selection or drag event of any sort make the graph selectable.
+                        if (this.selectable) this.makeSelectable(vis);
                 }.bind(this));
         },
         
@@ -201,7 +212,7 @@ HueChart.Box = new Class({
 
         //Add bars which indicate the positions which are currently selected and/or highlighted on the box graph.
         setPositionIndicators: function(vis) {
-                //Put selected_index in scope.
+                //Put selected_index and highlighted_index in scope.
                 get_selected_index = this.getSelectedIndex.bind(this);
                 get_highlighted_index = this.getHighlightedIndex.bind(this);
                 var selectedColor = this.options.selectedIndicatorColor;
@@ -223,14 +234,16 @@ HueChart.Box = new Class({
                         });
         },
 
-        getDataIndexFromX: function(x) {
-                //Convert the passedin in xValue into its corresponding data value on the xScale. 
-                var mx = this.xScale.invert(x);
-                //Search the data for the index of the element at this data value.
-                var i = pv.search(this.getData(true).getObjects().map(function(d){ return d[this.options.xProperty]; }.bind(this)), Math.round(mx));
-                //Adjust for ProtoVis search
-                i = i < 0 ? (-i - 2) : i;
-                return (i >= 0 && i < this.getData(true).getLength() ? i : null);
+        getDataIndexFromPoint: function(axis, x) {
+                if(axis == 'x') {
+                        //Convert the passedin in xValue into its corresponding data value on the xScale. 
+                        var mx = this.xScale.invert(x);
+                        //Search the data for the index of the element at this data value.
+                        var i = pv.search(this.getData(true).getObjects().map(function(d){ return d[this.options.xProperty]; }.bind(this)), Math.round(mx));
+                        //Adjust for ProtoVis search
+                        i = i < 0 ? (-i - 2) : i;
+                        return (i >= 0 && i < this.getData(true).getLength() ? i : null);
+                }
         },
 
         getYRange: function(y, inversionScale) {
@@ -262,7 +275,7 @@ HueChart.Box = new Class({
         addMouseEvents: function(vis) {
                 //Function that controls the search for data points and fires mouse positioning events. 
                 var mousePositionEvent = function(eventName, position) {
-                        var dataIndex = this.getDataIndexFromX(position.x);
+                        var dataIndex = this.getDataIndexFromPoint('x', position.x);
                         if(dataIndex != null) {
                                 var dataPoint = this.getData(true).getObjects()[dataIndex];
                                 this.fireEvent('point' + eventName.capitalize(), [ dataPoint, dataIndex ]);
@@ -296,37 +309,121 @@ HueChart.Box = new Class({
                         .event("click", clickFn);
 
         },
-
-        makeSelectable: function(){
-                this.selectState = {x: 0, dx: 0};
-                this.eventPanel
-                        .data([this.selectState])
-                        .event("mousedown", pv.Behavior.select())
-                        .event("mouseup", function() {
-                                if (this.selectState.dx > 2) {
-                                        //Get edges of selected area.
-                                         var leftEdge = this.adjustToGraph('x', this.selectState.x);
-                                         var rightEdge = this.adjustToGraph('x', this.selectState.x + this.selectState.dx);
-                                         //Get corresponding indexes for edges of selected area.
-                                         var leftIndex = this.getDataIndexFromX(leftEdge);
-                                         var rightIndex = this.getDataIndexFromX(rightEdge);
-                                         var leftObj = { index: leftIndex, data: this.getData(true).getObjects()[leftIndex] };
-                                         var rightObj = { index: rightIndex, data: this.getData(true).getObjects()[rightIndex] };
-                                         this.fireEvent('spanSelect', [leftObj, rightObj]);
-                                }
-                        }.bind(this));
+        
+        //Given points on an axis, return an array of data objects for each point
+        getObjectsForPoints: function(axis /*points*/) {
+                var argArray = $A(arguments).slice(1);
+                return argArray.map(function(point) {
+                        var toGraph = this.adjustToGraph(axis, point);
+                        var index = this.getDataIndexFromPoint(axis, toGraph);
+                        return { index: index, data: this.getData(true).getObjects()[index] };
+                }.bind(this));
                 
-                //Add a bar to display the selected state.
-                this.eventPanel.add(pv.Bar)
-                        .left(function(d) { return this.adjustToGraph('x', this.selectState.x); }.bind(this))
-                        //If d.dx has a value greater than 0...meaning we're in the middle of a
-                        //drag, adjust the width value to the graph.
-                        //Otherwise give it a width of 0. 
-                        .width(function(d) { return this.selectState.dx > 0 ? this.adjustToGraph('x', this.selectState.x + this.selectState.dx) - this.selectState.x : 0; 
-                        }.bind(this))
-                        .fillStyle(this.options.selectColor);
         },
         
+        //Make selection in graph draggable
+        makeSelectionDraggable: function() {
+                //Attach the ProtoVis drag behavior to the select bar and attach events for drag occurrences
+                this.selectBar = this.selectBar 
+                //Set cursor to be a mouse pointer
+                .cursor("move")
+                .event("mousedown", pv.Behavior.drag())
+                        .event("drag", function() {
+                                this.fireEvent('drag');
+                        }.bind(this))
+                        .event("dragstart", function() {
+                                this.fireEvent('dragStart');
+                        }.bind(this))
+                        .event("dragend", function() {
+                                if (this.options.fireSelectOnDrag) {
+                                        //Get objects for edge points
+                                        var leftPoint = this.dragState.x;
+                                        var rightPoint = this.dragState.x + this.selectWidth;
+                                        var objectArray = this.getObjectsForPoints('x', leftPoint, rightPoint);
+                                        this.fireEvent('spanSelect', objectArray);
+                                }
+                                this.fireEvent('dragEnd');
+                        }.bind(this));
+        },
+        
+        //Make graph selectable
+        makeSelectable: function(){
+                //Create select bar
+                this.selectBar = this.eventPanel.add(pv.Bar);
+                
+                //If there is a need for draggability, make the selection draggable.
+                if (this.draggable) this.makeSelectionDraggable();
+                
+                //Set the basic settings for the selectBar 
+                this.selectBar = this.selectBar
+                                //Initialize dragState as selectBar's data.
+                                .data([this.dragState])
+                                //Set fillStyle to the selectBarColor
+                                .fillStyle(this.options.selectBarColor)
+                                //Set height so that it only covers the chart
+                                .height(this.height - (this.options.bottomPadding + this.options.topPadding))
+                                //Set top to start at top padding
+                                .top(this.options.topPadding)
+                                //Set line width to 1 pixel
+                                .lineWidth(1)
+                                //Set the left value to the dragState's x value.
+                                .left(function(d) {
+                                        return d.x;
+                                });
+                
+                //Initialize selection to nothing
+                this.selectRange(0, 0);
+                //If the initialSelectValue has been set, select that range.
+                if(this.options.initialSelectValue) {
+                        //If date, convert to date
+                        if (this.options.dates.x) {
+                                startValue = this.data.getMsFromFirst(this.data.parseDate(this.options.initialSelectValue.start));
+                                endValue = this.data.getMsFromFirst(this.data.parseDate(this.options.initialSelectValue.end));
+                        }
+                        //Convert to points on xScale
+                        startX = this.xScale(startValue);
+                        endX = this.xScale(endValue);
+                        this.selectRange(startX, endX);
+                        this.selectBar.strokeStyle(this.options.selectBarBorderColor);
+                }
+                //Initialize eventPanel's select events.
+                this.eventPanel
+                        .data([this.selectState])
+                        .event("mousedown", pv.Behavior.select());
+                         
+                //If d.dx has a value greater than 0...meaning we're in the middle of a
+                //drag, adjust the width value to the graph.
+                //Otherwise give it a width of 0.
+                this.eventPanel
+                        .event("selectstart", function() {
+                                this.selectBar.width(0);
+                                this.selectBar.strokeStyle(this.options.selectBarBorderColor);
+                                this.fireEvent('selectStart');
+                        }.bind(this))
+                        .event("select", function() {
+                                this.selectRange(this.adjustToGraph('x', this.selectState.x), this.adjustToGraph('x', this.selectState.x + this.selectState.dx));
+                                this.fireEvent('select');
+                        }.bind(this))
+                        .event("selectend", function() {
+                                if (this.selectState.dx > 2) {
+                                        //Get objects for edge points
+                                        //left - this.selectState.x
+                                        //right - this.selectState.dx
+                                        var objectArray = this.getObjectsForPoints('x', this.selectState.x, this.selectState.x + this.selectState.dx);
+                                        this.fireEvent('spanSelect', objectArray);
+                                }
+                                this.fireEvent('selectEnd');
+                        }.bind(this));
+        },
+        
+        //Selects a pixel range in the graph.
+        selectRange: function(leftValue, rightValue) {
+                this.dragState.x = this.adjustToGraph('x', leftValue);
+                this.selectWidth = rightValue - leftValue;
+                this.selectBar
+                        .width(rightValue - leftValue);
+        },
+
         //Adjusts a point to the graph.  Ie...if you give it a point that's greater than or less than
         //points in the graph, it will reset it to points within the graph.
         //This is easily accomplished using the range of the graphing scales.
