@@ -20,7 +20,6 @@ requires:
 - More/DynamicTips
 
 provides: [ HueChart.Box ]
-
 ...
 */
 (function() {
@@ -41,7 +40,7 @@ HueChart.Box = new Class({
                 dates: {x: false, y: false}, //is the data in an axis a date ? 
                 dateSpans:{x: 'day'}, //if an axis is a date, what time span should the tick marks for that axis be shown in
                 positionIndicator: false, //should the position indicator be shown ?
-                showTicks: false, //should tick marks be shown ?
+                ticks: {x: false, y: false}, //should tick marks be shown ?
                 showLabels: false, //should axis labels be shown ?
                 tickColor: "#555", //the color of the tick marks
                 dateFormat: "%b %d", //the format that should be used when displaying dates
@@ -53,7 +52,7 @@ HueChart.Box = new Class({
                 selectedIndicatorColor: "black", //color that should be used to show the position of the selected index, when using the position indicator
                 highlightedIndicatorColor: "rgba(255, 255, 255, .5)",
                 yType: 'string', //the type of value that is being graphed on the y-axis,
-                showPointValue: false //show the value at the point when moused over
+                showPointValue: false, //show the value at the point when moused over
                 selectable: false, //make the chart selectable
                 //initialSelectValue: {left: 0, right: 0}, //the initial chart selection, must be same type as x values 
                 draggable: false, //make the chart selection draggable,
@@ -78,7 +77,7 @@ HueChart.Box = new Class({
                         this.getData(true).prepareDates(this.options.xProperty);
                         //Set dateProperty to the initial xProperty, this will hold a date object which will be used for rendering dates as strings 
                         this.dateProperty = this.options.xProperty;
-                        this.options.xProperty = 'seconds_from_first';
+                        this.options.xProperty = 'ms_from_first';
                 } else {
                         //Otherwise sort by the x property.
                         this.getData(true).sortByProperty(this.options.xProperty);
@@ -108,7 +107,7 @@ HueChart.Box = new Class({
                         //Add representation of the data.
                         this.addGraph(vis);
                         //Add tick marks (rules on side and bottom) if enabled
-                        if (this.options.showTicks) this.setTicks(vis);
+                        if (this.options.ticks.x || this.options.ticks.y) this.setTicks(vis);
                         //Add axis labels if enabled
                         if (this.options.showLabels) this.setLabels(vis);
                         //Add position indicator if enabled
@@ -141,59 +140,63 @@ HueChart.Box = new Class({
         
         //Draw the X and Y tick marks.
         setTicks:function(vis) {
-                //Add X-Ticks.
-                //Create tick array.
-                var xTicks = (this.options.dates.x ? this.getData(true).createTickArray(7, this.options.dateSpans.x, this.dateProperty) : this.xScale.ticks(7));
-                //Function will return the correct xValue dependent on whether or not x is a date
-                var getXValue = getXValueFn(this.options.dates.x ? this.options.xProperty : null);
-                //Create rules (lines intended to denote scale)
-                vis.add(pv.Rule)
-                        //Use the tick array as data.
-                        .data(xTicks)
-                        //The bottom of the rule should be at the bottomPadding - the height of the rule.  
-                        .bottom(this.options.bottomPadding - this.options.xTickHeight)
-                        //The left of the rule should be at the data object's xProperty value scaled to pixels.
-                        .left(function(d) { return this.xScale(getXValue(d)); }.bind(this))
-                        //Set the height of the rule to the xTickHeight
-                        .height(this.options.xTickHeight)
-                        .strokeStyle(this.options.tickColor)
-                        //Add label to bottom of each rule
-                        .anchor("bottom").add(pv.Label)
-                                .text(function(d) {
-                                        //If the option is a date, format the date property field.
-                                        //Otherwise, simply show it.
-                                        if(this.options.dates.x) {
-                                                return d[this.dateProperty].format(this.options.dateFormat);
-                                        } else {
-                                                return getXValue(d);
-                                        }
-                                }.bind(this));
-               
-                //Add Y-Ticks
-                //Calculate number of yTicks to show.
-                //Approximate goal of 35 pixels between yTicks.
-                var yTickCount = (this.height - (this.options.bottomPadding + this.options.topPadding))/this.options.verticalTickSpacing;
-                //In some box-style charts, there is a need to have a different scale for yTicks and for y values.
-                //If there is a scale defined for yTicks, use it, otherwise use the standard yScale.
-                var tickScale = this.yScaleTicks || this.yScale;
-                //Create rules
-                vis.add(pv.Rule)
-                        //Always show at least two ticks.
-                        //tickScale.ticks returns an array of values which are evenly spaced to be used as tick marks.
-                        .data(tickScale.ticks(yTickCount > 1 ? yTickCount : 2))
-                        //The left side of the rule should be at leftPadding pixels.
-                        .left(this.options.leftPadding)
-                        //The bottom of the rule should be at the tickScale.ticks value scaled to pixels.
-                        .bottom(function(d) {return tickScale(d);}.bind(this))
-                        //The width of the rule should be the width minus the hoizontal padding.
-                        .width(this.width - this.options.leftPadding - this.options.rightPadding + 1)
-                        .strokeStyle(this.options.tickColor)
-                        //Add label to the left which shows the number of bytes.
-                        .anchor("left").add(pv.Label)
-                                .text(function(d) { 
-                                        if(this.options.yType == 'bytes') return d.convertFileSize(); 
-                                        return d;
-                                }.bind(this));
+                if (this.options.ticks.x) {
+                        //Add X-Ticks.
+                        //Create tick array.
+                        var xTicks = (this.options.dates.x ? this.getData(true).createTickArray(7, this.options.dateSpans.x, this.dateProperty) : this.xScale.ticks(7));
+                        //Function will return the correct xValue dependent on whether or not x is a date
+                        var getXValue = getXValueFn(this.options.dates.x ? this.options.xProperty : null);
+                        //Create rules (lines intended to denote scale)
+                        vis.add(pv.Rule)
+                                //Use the tick array as data.
+                                .data(xTicks)
+                                //The bottom of the rule should be at the bottomPadding - the height of the rule.  
+                                .bottom(this.options.bottomPadding - this.options.xTickHeight)
+                                //The left of the rule should be at the data object's xProperty value scaled to pixels.
+                                .left(function(d) { return this.xScale(getXValue(d)); }.bind(this))
+                                //Set the height of the rule to the xTickHeight
+                                .height(this.options.xTickHeight)
+                                .strokeStyle(this.options.tickColor)
+                                //Add label to bottom of each rule
+                                .anchor("bottom").add(pv.Label)
+                                        .text(function(d) {
+                                                //If the option is a date, format the date property field.
+                                                //Otherwise, simply show it.
+                                                if(this.options.dates.x) {
+                                                        return d[this.dateProperty].format(this.options.dateFormat);
+                                                } else {
+                                                        return getXValue(d);
+                                                }
+                                        }.bind(this));
+                }
+                
+                if (this.options.ticks.y) {      
+                        //Add Y-Ticks
+                        //Calculate number of yTicks to show.
+                        //Approximate goal of 35 pixels between yTicks.
+                        var yTickCount = (this.height - (this.options.bottomPadding + this.options.topPadding))/this.options.verticalTickSpacing;
+                        //In some box-style charts, there is a need to have a different scale for yTicks and for y values.
+                        //If there is a scale defined for yTicks, use it, otherwise use the standard yScale.
+                        var tickScale = this.yScaleTicks || this.yScale;
+                        //Create rules
+                        vis.add(pv.Rule)
+                                //Always show at least two ticks.
+                                //tickScale.ticks returns an array of values which are evenly spaced to be used as tick marks.
+                                .data(tickScale.ticks(yTickCount > 1 ? yTickCount : 2))
+                                //The left side of the rule should be at leftPadding pixels.
+                                .left(this.options.leftPadding)
+                                //The bottom of the rule should be at the tickScale.ticks value scaled to pixels.
+                                .bottom(function(d) {return tickScale(d);}.bind(this))
+                                //The width of the rule should be the width minus the hoizontal padding.
+                                .width(this.width - this.options.leftPadding - this.options.rightPadding + 1)
+                                .strokeStyle(this.options.tickColor)
+                                //Add label to the left which shows the number of bytes.
+                                .anchor("left").add(pv.Label)
+                                        .text(function(d) { 
+                                                if(this.options.yType == 'bytes') return d.convertFileSize(); 
+                                                return d;
+                                        }.bind(this));
+                }
         },
         
         //Add X and Y axis labels.
@@ -448,7 +451,8 @@ HueChart.Box = new Class({
                 if (point > high) return high;
                 return point;
         },
-
+        
+        //Updates the display of the currently visible tip
         updatePointValue: function(series) {
                 if (series != null) {
                         var tipColor = new Element('div', {'class': 'tip-series-color'});
