@@ -88,8 +88,10 @@ HueChart.Box = new Class({
                         this.tip = new DynamicTips(this.element, {
                                 className: 'huechart tip-wrap',
                                 title: $lambda("Title"),
-                                text: $lambda("Text")
+                                text: $lambda("Text"),
+                                showOnEnter: false
                         });
+                        this.tip.hide();
                         this.addEvent('seriesMouseOver', this.updatePointValue);
                 }
                 //Initialize dragState and selectState
