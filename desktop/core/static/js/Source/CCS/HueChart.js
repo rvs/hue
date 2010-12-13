@@ -26,7 +26,29 @@ provides: [ HueChart ]
 //
 
 (function() {
-var colorManager = GroupValueManager; 
+var colorManager = GroupValueManager;
+
+Date.extend({
+        subspan: { 'second': 'ms',
+                        'minute': 'second',
+                        'hour': 'minute',
+                        'day': 'hour'}
+});
+
+Date.implement({
+        truncateTo: function(target) {
+                //Set value of span below truncation target to 0
+                var subspan = Date.subspan[target];
+                var toZero = subspan;
+                if(subspan != 'ms') {
+                        toZero += 's';
+                }
+                var truncated = this.get(toZero);
+                this.set(toZero, 0);
+                return truncated;
+        }
+});
+
 HueChart = new Class({
 
         Implements: [Events, Options],
