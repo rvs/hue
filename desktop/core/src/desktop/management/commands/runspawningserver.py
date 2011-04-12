@@ -42,7 +42,7 @@ SPAWNING_SERVER_OPTIONS = {
   'chuid': None, 
   'coverage': None, 
   'daemonize': None, 
-  'deadman_timeout': 10, 
+  'deadman_timeout': 1, 
   'factory': 'spawning.django_factory.config_factory', 
   'host': conf.HTTP_HOST.get(), 
   'max_age': None, 
@@ -73,7 +73,7 @@ class Command(BaseCommand):
         from django.utils import translation
 
         if not conf.ENABLE_CHERRYPY_SERVER.get():
-          logging.info("Hue is configured to not start CherryPy server.")
+          logging.info("Hue is configured to not start Spawning server.")
           sys.exit(0)
 
         # Activate the current language, because it won't get activated later.

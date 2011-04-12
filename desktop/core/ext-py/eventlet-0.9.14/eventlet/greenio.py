@@ -268,7 +268,7 @@ class GreenSocket(object):
             try:
                 total_sent += fd.send(data[total_sent:], flags)
             except socket.error, e:
-                if get_errno(e) not in SOCKET_BLOCKING:
+                if get_errno(e) not in SOCKET_BLOCKING and get_errno(e) not in SOCKET_CLOSED:
                     raise
 
             if total_sent == len_data:

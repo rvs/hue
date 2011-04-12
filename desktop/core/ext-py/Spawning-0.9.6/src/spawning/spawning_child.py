@@ -186,8 +186,6 @@ def read_pipe_and_die(the_pipe, server_coro):
 
 
 def deadman_timeout(signum, frame):
-    print "(%s) !!! Deadman timer expired, killing self with extreme prejudice" % (
-        os.getpid(), )
     os.kill(os.getpid(), signal.SIGKILL)
 
 def tpool_wsgi(app):
