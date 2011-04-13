@@ -31,9 +31,7 @@ SPAWNING_SERVER_HELP = r"""
 IGNORED_SERVER_OPTIONS = {
   'server_name': 'localhost',
   'threads': conf.CHERRYPY_SERVER_THREADS.get(),
-  'workdir': None,
-  'ssl_certificate': conf.SSL_CERTIFICATE.get(),
-  'ssl_private_key': conf.SSL_PRIVATE_KEY.get()
+  'workdir': None
 }
 
 SPAWNING_SERVER_OPTIONS = {
@@ -55,6 +53,8 @@ SPAWNING_SERVER_OPTIONS = {
   'restart_args': None, 
   'server_user': conf.SERVER_USER.get(),
   'server_group': conf.SERVER_GROUP.get(),
+  'ssl_certificate': '/home/aditya/Desktop/server.crt', # conf.SSL_CERTIFICATE.get(),
+  'ssl_private_key': '/home/aditya/Desktop/server.key', # conf.SSL_PRIVATE_KEY.get(),
   'status_host': '', 
   'status_port': 0, 
   'stderr': None,
@@ -129,6 +129,10 @@ def runspawningserver():
     print 'Could not bind port %s. Exiting' % (str(SPAWNING_SERVER_OPTIONS['port']),)
     sys.exit(-1)
   
+  if SPAWNING_SERVER_OPTIONS['ssl_certificate'] and SPAWNING_SERVER_OPTIONS['ssl_private_key']:
+    sock = eventlet.wrap_ssl(sock, certfile=SPAWNING_SERVER_OPTIONS['ssl_certificate'],
+           keyfile=SPAWNING_SERVER_OPTIONS['ssl_private_key'], server_side=True)
+  
   drop_privileges_if_necessary(SPAWNING_SERVER_OPTIONS)
 
   factory = SPAWNING_SERVER_OPTIONS['factory']
@@ -153,6 +157,8 @@ def runspawningserver():
     'pidfile': SPAWNING_SERVER_OPTIONS['pidfile'],
     'port': SPAWNING_SERVER_OPTIONS['port'],
     'reload': SPAWNING_SERVER_OPTIONS['reload'],
+    'ssl_certificate': SPAWNING_SERVER_OPTIONS['ssl_certificate'],
+    'ssl_private_key': SPAWNING_SERVER_OPTIONS['ssl_private_key'],
     'status_host': SPAWNING_SERVER_OPTIONS['status_host'] or SPAWNING_SERVER_OPTIONS['host'],
     'status_port': SPAWNING_SERVER_OPTIONS['status_port'],
     'sysinfo': SPAWNING_SERVER_OPTIONS['sysinfo'],

@@ -140,6 +140,11 @@ class Controller(object):
                     json.dumps(self.args)]
                 if self.args['reload'] == 'dev':
                     command.append('--reload')
+		if self.args.get('ssl_private_key') and self.args.get('ssl_certificate'):
+                    command.append('--ssl-private-key')
+                    command.append(self.args.get('ssl_private_key'))
+                    command.append('--ssl-certificate')
+                    command.append(self.args.get('ssl_certificate'))
                 env = environ()
                 tpool_size = int(self.config.get('threadpool_workers', 0))
                 assert tpool_size >= 0, (tpool_size, 'Cannot have a negative --threads argument')
@@ -358,6 +363,10 @@ def main():
         help='If given, hosts a server status page at that port.  Two pages are served: a human-readable HTML version at http://host:status_port/status, and a machine-readable version at http://host:status_port/status.json')
     parser.add_option('--status-host', dest='status_host', type='string', default='',
         help='If given, binds the server status page to the specified local ip address.  Defaults to the same value as --host.  If --status-port is not supplied, the status page will not be activated.')
+    parser.add_option('--ssl-certificate', dest='ssl_certificate', type='string', default='',
+        help='Absolute path to SSL certificate file.')
+    parser.add_option('--ssl-private-key', dest='ssl_private_key', type='string', default='',
+        help='Absolute path to SSL private key.')
 
     options, positional_args = parser.parse_args()
 
@@ -497,7 +506,9 @@ def main():
         'argv_str': " ".join(sys.argv[1:]),
         'args': positional_args,
         'status_port': options.status_port,
-        'status_host': options.status_host or options.host
+        'status_host': options.status_host or options.host,
+	'ssl_private_key': options.ssl_private_key,
+	'ssl_certificate': options.ssl_certificate
     }
     start_controller(sock, factory, factory_args)
 

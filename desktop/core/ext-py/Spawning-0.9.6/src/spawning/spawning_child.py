@@ -299,6 +299,10 @@ def main():
         action='store_true', dest='reload',
         help='If --reload is passed, reload the server any time '
         'a loaded module changes.')
+    parser.add_option('--ssl-certificate', dest='ssl_certificate', type='string', default='',
+        help='Absolute path to SSL certificate file.')
+    parser.add_option('--ssl-private-key', dest='ssl_private_key', type='string', default='',
+        help='Absolute path to SSL private key.')
 
     options, args = parser.parse_args()
 
@@ -337,6 +341,9 @@ def main():
     sock = eventlet.greenio.GreenSocket(
         socket.fromfd(int(httpd_fd), socket.AF_INET, socket.SOCK_STREAM))
 
+    if options.ssl_certificate and options.ssl_private_key:
+        sock.fd = socket._socketobject(_sock=sock.fd)
+        sock = eventlet.wrap_ssl(sock, certfile=options.ssl_certificate, keyfile=options.ssl_private_key, server_side=True)
     serve_from_child(
         sock, config, controller_pid)
 
