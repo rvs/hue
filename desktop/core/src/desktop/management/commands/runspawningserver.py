@@ -125,7 +125,7 @@ def drop_privileges_if_necessary(options):
 def runspawningserver():
   try:
     sock = spawning.spawning_controller.bind_socket(SPAWNING_SERVER_OPTIONS)
-  except: # I know, this is a bare except, which is bad, but I'll fix this later.
+  except: # TODO: Fix this bare except
     print 'Could not bind port %s. Exiting' % (str(SPAWNING_SERVER_OPTIONS['port']),)
     sys.exit(-1)
   

@@ -22,16 +22,16 @@ import simplejson
 import shell.conf
 import shell.constants as constants
 
+_cached_shell_types = []
+for item in shell.conf.SHELL_TYPES.keys():
+  nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
+  short_name = shell.conf.SHELL_TYPES[item].short_name.get()
+  _cached_shell_types.append({ constants.NICE_NAME: nice_name,
+                                      constants.KEY_NAME: short_name })
+_cached_shell_types_response = simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS: True,
+                                                 constants.SHELL_TYPES: _cached_shell_types })
 def index(request):
   return render('index.mako', request, dict(date=datetime.datetime.now()))
 
 def shell_types(request):
-  cached_shell_types = []
-  for item in shell.conf.SHELL_TYPES.keys():
-    nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
-    short_name = shell.conf.SHELL_TYPES[item].short_name.get()
-    cached_shell_types.append({ constants.NICE_NAME: nice_name,
-                                      constants.KEY_NAME: short_name })
-  cached_shell_types_response = { constants.SUCCESS: True,
-                                                 constants.SHELL_TYPES: cached_shell_types }
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode(cached_shell_types_response))
+  return HttpResponse(_cached_shell_types_response)
