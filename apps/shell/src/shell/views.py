@@ -18,6 +18,7 @@
 from desktop.lib.django_util import render
 from django.http import HttpResponse
 import datetime
+from eventlet.green import time
 import simplejson
 import shell.conf
 import shell.constants as constants
@@ -28,10 +29,26 @@ for item in shell.conf.SHELL_TYPES.keys():
   short_name = shell.conf.SHELL_TYPES[item].short_name.get()
   _cached_shell_types.append({ constants.NICE_NAME: nice_name,
                                       constants.KEY_NAME: short_name })
-_cached_shell_types_response = simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS: True,
-                                                 constants.SHELL_TYPES: _cached_shell_types })
+_cached_shell_types_response = simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True,
+                                                 constants.SHELL_TYPES : _cached_shell_types })
 def index(request):
   return render('index.mako', request, dict(date=datetime.datetime.now()))
 
 def shell_types(request):
   return HttpResponse(_cached_shell_types_response)
+
+def process_command(request):
+  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True }))
+
+def create(request):
+  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True, constants.SHELL_ID : 1}))
+
+def kill_shell(request):
+  return HttpResponse("Shell killed")
+
+def retrieve_output(request):
+  time.sleep(12)
+  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ 1 : { constants.ALIVE : True,  constants.OUTPUT : "Some arbitrary output\n"} }))
+
+def restore_shell(request):
+  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS: False }))

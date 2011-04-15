@@ -129,9 +129,9 @@ def runspawningserver():
     print 'Could not bind port %s. Exiting' % (str(SPAWNING_SERVER_OPTIONS['port']),)
     sys.exit(-1)
   
-  if SPAWNING_SERVER_OPTIONS['ssl_certificate'] and SPAWNING_SERVER_OPTIONS['ssl_private_key']:
-    sock = eventlet.wrap_ssl(sock, certfile=SPAWNING_SERVER_OPTIONS['ssl_certificate'],
-           keyfile=SPAWNING_SERVER_OPTIONS['ssl_private_key'], server_side=True)
+#  if SPAWNING_SERVER_OPTIONS['ssl_certificate'] and SPAWNING_SERVER_OPTIONS['ssl_private_key']:
+#    sock = eventlet.wrap_ssl(sock, certfile=SPAWNING_SERVER_OPTIONS['ssl_certificate'],
+#           keyfile=SPAWNING_SERVER_OPTIONS['ssl_private_key'], server_side=True)
   
   drop_privileges_if_necessary(SPAWNING_SERVER_OPTIONS)
 
