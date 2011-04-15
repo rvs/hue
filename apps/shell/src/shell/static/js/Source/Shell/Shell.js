@@ -23,7 +23,7 @@ description: Defines Shell; a Hue application that extends Hue.JBrowser.
 authors:
 - Aditya Acharya
 
-requires: [JFrame/JFrame.Browser, hue-shared/Hue.Request, Core/Element, Core/Native, hue-shared/Hue.ShellPoller]
+requires: [JFrame/JFrame.Browser, hue-shared/Hue.Request, Core/Element, Core/Native, hue-shared/Hue.ShellPoller, Core/Fx]
 provides: [Shell]
 
 ...
@@ -100,9 +100,13 @@ var Shell = new Class({
     this.input = new Element('textarea', {
       'class':'fixed_width_font',
       events: {
-        keydown: this.handleKeyDown.bind(this)
-      }
+        keydown: this.handleKeyDown.bind(this),
+        keyup: this.resizeInput.bind(this)
+      },
+      spellcheck: false
     });
+
+    this.inputExpander = new Fx.Morph(this.input, { duration:0, transition: Fx.Transitions.linear });
     this.button = new Element('input', {
       type:'button',
       value:'Send command',
@@ -296,12 +300,15 @@ var Shell = new Class({
   },
 
   resizeInput: function(){
-    //In Firefox, we can't resize the textarea unless we first clear its
-    //height style property.
-    if(Browser.Engine.gecko){
-      this.input.setStyle("height","");
+    var currHeight = this.input.getSize().y;
+    var scrollHeight = this.input.getScrollSize().y;
+    if(scrollHeight < currHeight){
+      return;
     }
-    this.input.setStyle("height", this.input.get("scrollHeight"));
+    // Credit to Philip Hutchison, http://pipwerks.com/2010/05/07/textareaexpander-class-for-mootools/
+    // for suggesting this way of resizing the input. It works really well. This idea is borrowed and
+    // modified from his MIT-licensed code.
+    this.inputExpander.start({ height: scrollHeight });
   },
 
   appendToOutput:function(text){
@@ -388,10 +395,6 @@ var Shell = new Class({
     }else if(event.key=="tab"){
       event.stop();
     }
-    //If we need to have the textarea grow, we can only do that after the
-    //contents of the textarea have been updated. So let's set a timeout
-    //that gets called as soon as the stack of this event handler
-    //returns.
     this.resizeInput.delay(0, this);
   },
   
@@ -424,7 +427,7 @@ var Shell = new Class({
       }else if(json.shellKilled){
         this.errorMessage("Error", "This shell has been killed. Please restart this app.");
       }else if(json.bufferExceeded){
-        this.errorMessage("Error", "You have entered too many commands. Please try again. If this problem persists, please restart this app.");
+        this.errorMessage("Error", "You have entered too many commands. Please try again.");
       }
     }
   },

@@ -48,7 +48,7 @@ def kill_shell(request):
 
 def retrieve_output(request):
   time.sleep(12)
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ 1 : { constants.ALIVE : True,  constants.OUTPUT : "Some arbitrary output\n"} }))
+  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ 1 : { constants.ALIVE : True,  constants.OUTPUT : ""} }))
 
 def restore_shell(request):
   return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS: False }))
