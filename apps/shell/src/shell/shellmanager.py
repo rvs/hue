@@ -39,6 +39,10 @@ import tty
 import logging
 LOG = logging.getLogger(__name__)
 
+class ShellInterrupt(Exception):
+  def __init__(self, shell):
+    self.shell = shell
+
 class Shell(object):
   """
   A class to encapsulate I/O with a shell subprocess.
@@ -104,6 +108,14 @@ class Shell(object):
 
   def get_previous_commands(self):
     return self._commands
+
+  def get_cached_output(self, offset):
+    """
+    The offset is not the latest one, so some output has already been generated and is
+    stored in the read buffer. So let's fetch it from there.
+    """
+    self._read_buffer.seek(offset)
+    return self._read_buffer.read()
 
   def process_command(self, command):
     LOG.debug("Command received for pid %d : '%s'" % (self.pid, command,))
@@ -188,6 +200,36 @@ class Shell(object):
     self._write_buffer.write(new_value)
     self._write_buffer.seek(0)
 
+  def read_child_output(self):
+    """
+    Reads up to constants.OS_READ_AMOUNT bytes from the child subprocess's stdout. Returns a tuple
+    of (output, more_available). The second parameter indicates whether more output might be
+    obtained by another call to _read_child_output.
+    """
+    ofd = self._fd
+    try:
+      next_output = os.read(ofd, constants.OS_READ_AMOUNT)
+      self._read_buffer.seek(self._output_buffer_length)
+      self._read_buffer.write(next_output)
+      length = len(next_output)
+      self._output_buffer_length += length
+      num_excess_chars = self._output_buffer_length - shell.conf.SHELL_BUFFER_AMOUNT.get()
+      if num_excess_chars > 0:
+        self._read_buffer.seek(num_excess_chars)
+        newval = self._read_buffer.read()
+        self._read_buffer.truncate(0)
+        self._read_buffer.write(newval)
+    except OSError, e: # No more output at all
+      if e.errno == errno.EINTR:
+        pass
+      elif e.errno != errno.EAGAIN:
+        format_str = "Encountered error while reading from process with PID %d : %s"
+        LOG.error( format_str % (self._subprocess.pid, e))
+        # self.mark_for_cleanup() TODO: What to do here?
+    more_available = length >= constants.OS_READ_AMOUNT
+    return (next_output, more_available, self._output_buffer_length)
+
+
 class ShellManager(object):
   """
   The class that manages state for all shell subprocesses.
@@ -197,6 +239,11 @@ class ShellManager(object):
     self._shell_types = []
     self._command_by_short_name = {}
     self._meta = {}
+    self._greenlets_by_hid = {}
+    self._hids_by_pid = {}
+    self._greenlets_to_notify = {}
+    self._shells_by_fds = {}
+    
     for item in shell.conf.SHELL_TYPES.keys():
       nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
       short_name = shell.conf.SHELL_TYPES[item].short_name.get()
@@ -206,8 +253,8 @@ class ShellManager(object):
       self._command_by_short_name[short_name] = command
 
     self.shell_types_response = { constants.SUCCESS: True, constants.SHELL_TYPES: self._shell_types }
-    # We will have to do this a lot so we violate MVC a little bit and store the JSON formatted string instead
-    # of the dictionary.
+    # We will have to return this a lot so we violate MVC a little bit and store the JSON formatted
+    # string instead of the dictionary.
     self.shell_types_response = simplejson.dumps(self.shell_types_response)
 
   @classmethod
@@ -239,6 +286,7 @@ class ShellManager(object):
     LOG.debug("Shell successfully created")
     user_metadata.increment_count()
     self._shells[(username, shell_id)] = shell_instance
+    self._shells_by_fds[(username, shell_instance._fd)] = shell_instance
     return { constants.SUCCESS : True, constants.SHELL_ID : shell_id }
 
   def kill_shell(self, username, shell_id):
@@ -279,10 +327,12 @@ class ShellManager(object):
     shell instances.
     """
     total_cached_output = {}
+    offsets_for_shells = {}
     for shell_id, offset in shell_pairs:
       shell_instance = self._shells.get((username, shell_id))
       if shell_instance:
-        cached_output = shell_instance.get_cached_output(hue_instance_id, offset) # TODO: Write this method
+        offsets_for_shells[shell_instance] = offset
+        cached_output = shell_instance.get_cached_output(offset)
         if cached_output:
           total_cached_output[shell_id] = cached_output
       else:
@@ -293,39 +343,76 @@ class ShellManager(object):
       LOG.debug("Serving output request from cache")
       return total_cached_output
 
-    # If a previous greenlet exists for this HID:
-    #   Cancel it
+    current_greenlet = eventlet.getcurrent()
+    prev_greenlet_for_tab = self._greenlets_by_hid.pop(hue_instance_id, None)
+    if prev_greenlet_for_tab:
+      if prev_greenlet_for_tab is not current_greenlet:
+        prev_greenlet_for_tab.throw()
+    
+    self._greenlets_by_hid[hue_instance_id] = current_greenlet
 
-    # Register this greenlet as listening for this HID
+    fds_to_listen_for = []
+    for shell_id, offset in shell_pairs:
+      shell_instance = self._shells.get((username, shell_id))
+      if self._hids_by_pid.get(shell_instance.pid):
+        if not shell_instance.pid in self._greenlets_to_notify:
+          self._greenlets_to_notify[shell_instance.pid] = []
+        self._greenlets_to_notify[shell_instance.pid].append(current_greenlet)
+      else:
+        fds_to_listen_for.append(shell_instance._fd)
+        self._hids_by_pid[shell_instance.pid] = hue_instance_id
 
-    # For each shell_id in shell_pairs:
-    #   If another HID is listening for that shell
-    #     Register this greenlet as interested in that shell
-    #   Else
-    #     Add that shell to the list of shells we'll be listening for
+    try:
+      if fds_to_listen_for:
+        r, w, x = select.select(fds_to_listen_for, [], [], constants.BROWSER_REQUEST_TIMEOUT)
+      else:
+        time.sleep(constants.BROWSER_REQUEST_TIMEOUT)
+    except ShellInterrupt, s:
+      offset = offsets_for_shells[s.shell]
+      cached_output = s.shell.get_cached_output(offset)
+      total_cached_output[s.shell.shell_id] = cached_output
+      result = total_cached_output
+    except GreenletExit, ge:
+      result = { constants.CANCELLED : True }
+    else:
+      if not r:
+        result = { constants.PERIODIC_RESPONSE : True }
+      else:
+        result = {}
+        for fd in r:
+          shell_instance = self._shells_by_fds.get((username, fd))
+          if not shell_instance:
+            LOG.warn("Shell for readable file descriptor %d is missing" % (fd,))
+          else:
+            total_output, more_available, next_offset = shell_instance.read_child_output()
 
-    # Try:
-    #    If we will be listening:
-    #       select with a 50 second timeout
-    #    Else:
-    #       time.sleep(50)
-    # Except ShellInterrupt s:
-    #    # One of the processes we were interested in has output, it's shell_id is specified by s.shell_id
-    #    Result = Read from cache
-    # Else:
-    #    If select timed out:
-    #       Result = keep alive
-    #    Else:
-    #       # Holy shit we have output
-    #       For each shell we listened for that had output:
-    #           Read some amount of output.
-    #           Update cache
-    #       For each shell we listened for that had output:
-    #           s = ShellException(shell_id)
-    #           For each greenlet registered for the shell:
-    #               Interrupt it with s
-    # Finally:
-    #   For all shells we were on the hook for:
-    #     Unregister ourselves
-  
-    # Return result
+          # If this is the last output from the shell, let's tell the JavaScript that.
+          if shell_instance._subprocess.poll() == None:
+            status = constants.ALIVE
+          else:
+            status = constants.EXITED
+            shell_instance.last_output_sent = True
+
+          result[shell_instance.shell_id] = { status: True, constants.OUTPUT: total_output,
+              constants.MORE_OUTPUT_AVAILABLE: more_available, constants.NEXT_OFFSET: next_offset}
+
+        for fd in r:
+          shell_instance = self._shells_by_fds.get((username, fd))
+          if shell_instance:
+            s = ShellInterrupt(shell_instance)
+            greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
+            for item in greenlets_to_notify:
+              item.throw(s)
+
+    finally:
+      for shell_id, offset in shell_pairs:
+        shell_instance = self._shells.get((username, shell_id))
+        if self._hids_by_pid.get(shell_instance.pid) == hue_instance_id:
+          self._hids_by_pid.pop(shell_instance.pid)
+        else:
+          try:
+            self._greenlets_to_notify[shell_instance.pid].remove(current_greenlet)
+          except ValueError:
+            LOG.warn("Greenlet for pid %d was not found in list of listening greenlets" % (shell_instance.pid,))
+
+    return result

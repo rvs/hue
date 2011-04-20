@@ -24,6 +24,7 @@ from eventlet.green import time
 import simplejson
 import shell.conf
 import shell.constants as constants
+import shell.utils as utils
 from shell.shellmanager import ShellManager
 
 def index(request):
@@ -68,3 +69,4 @@ def retrieve_output(request):
   hue_instance_id = request.META.get(constants.HUE_INSTANCE_ID, "")
   shell_pairs = utils.parse_shell_pairs(request)
   result = shell_manager.retrieve_output(username, hue_instance_id, shell_pairs)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")

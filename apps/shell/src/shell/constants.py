@@ -44,6 +44,7 @@ SHELL_CREATE_FAILED = "shellCreateFailed"
 MORE_OUTPUT_AVAILABLE = "moreOutputAvailable"
 NUM_PAIRS = "numPairs"
 RESTART_HUE = "restartHue"
+CANCELLED = "cancelled"
 
 # HTTP Headers used
 HUE_INSTANCE_ID = "HTTP_HUE_INSTANCE_ID"

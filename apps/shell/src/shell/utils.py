@@ -19,6 +19,7 @@ A mixed bag of utilities that are useful for the Shell app but aren't terribly i
 """
 
 import logging
+import shell.constants as constants
 
 LOG = logging.getLogger(__name__)
 
@@ -28,17 +29,17 @@ def parse_shell_pairs(request):
   """
   shell_pairs = []
   try:
-    num_pairs = int(request.GET.get(constants.NUM_PAIRS, ""))
+    num_pairs = int(request.POST.get(constants.NUM_PAIRS, ""))
   except ValueError:
     return shell_pairs
 
   for i in xrange(1, num_pairs+1):
     try:
-      shell_id_i = int(request.GET.get("%s%d" % (constants.SHELL_ID, i), "-1"))
-      offset_i = int(request.GET.get("%s%d" % (constants.OFFSET, i), "-1"))
+      shell_id_i = request.POST.get("%s%d" % (constants.SHELL_ID, i), "-1")
+      offset_i = int(request.POST.get("%s%d" % (constants.OFFSET, i), "-1"))
     except ValueError:
-      LOG.debug('Bad HTTP parameter : "%s%d" has value "%s"' % (constants.SHELL_ID, i, 
-                                      request.GET.get("%s%d" % (constants.SHELL_ID, i), "-1")))
+      LOG.debug('Bad HTTP parameter : "%s%d" has value "%s"' % (constants.OFFSET, i, 
+                                      request.POST.get("%s%d" % (constants.SHELL_ID, i), "-1")))
     else:
       shell_pairs.append((shell_id_i, offset_i))
   return shell_pairs

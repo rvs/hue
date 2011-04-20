@@ -23,6 +23,27 @@ script: Hue.ShellPoller.js
 ...
 */
 
+var hueInstanceID = function(){
+    var chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz";
+    var lastIndex = chars.length - 1;
+    var stringLength = 128;
+	var randomString = "";
+	for (var i = 0; i < stringLength; i++){
+	    var randomIndex = $random(0, lastIndex);
+	    randomString += chars.substring(randomIndex, randomIndex+1);
+	}
+	return randomString;
+}();
+
+Request.implement({
+	options: {
+		headers: {
+		    "Hue-Instance-ID" : hueInstanceID
+		}
+	}
+});
+
+
 Hue.ShellPoller = {
   initialize: function(){
     this.outputReq = new Request.JSON({
