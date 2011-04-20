@@ -22,6 +22,27 @@ import logging
 
 LOG = logging.getLogger(__name__)
 
+def parse_shell_pairs(request):
+  """
+  Parses out and returns a list of (shell_id, offset) tuples from a descendant of RequestHandler.
+  """
+  shell_pairs = []
+  try:
+    num_pairs = int(request.GET.get(constants.NUM_PAIRS, ""))
+  except ValueError:
+    return shell_pairs
+
+  for i in xrange(1, num_pairs+1):
+    try:
+      shell_id_i = int(request.GET.get("%s%d" % (constants.SHELL_ID, i), "-1"))
+      offset_i = int(request.GET.get("%s%d" % (constants.OFFSET, i), "-1"))
+    except ValueError:
+      LOG.debug('Bad HTTP parameter : "%s%d" has value "%s"' % (constants.SHELL_ID, i, 
+                                      request.GET.get("%s%d" % (constants.SHELL_ID, i), "-1")))
+    else:
+      shell_pairs.append((shell_id_i, offset_i))
+  return shell_pairs
+
 class UserMetadata(object):
   """
   A simple class to encapsulate the metadata for a user.

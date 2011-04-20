@@ -63,6 +63,8 @@ def process_command(request):
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def retrieve_output(request):
-  time.sleep(12)
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ 1 : { constants.ALIVE : True,  constants.OUTPUT : ""} }))
-
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  hue_instance_id = request.META.get(constants.HUE_INSTANCE_ID, "")
+  shell_pairs = utils.parse_shell_pairs(request)
+  result = shell_manager.retrieve_output(username, hue_instance_id, shell_pairs)

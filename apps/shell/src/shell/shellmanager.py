@@ -62,6 +62,7 @@ class Shell(object):
                                                                  env=subprocess_env, close_fds=True)
     except (OSError, ValueError):
       os.close(parent)
+      os.close(child)
       raise
 
     # State that isn't touched by any other classes.
@@ -145,7 +146,18 @@ class Shell(object):
     try:
       r, w, x = select.select([],[fd],[])
     except Exception, e:
-      raise
+      # Depending on python version and poll implementation,
+      # different exception types may be thrown and there are
+      # two ways EINTR might be signaled:
+      # * e.errno == errno.EINTR
+      # * e.args is like (errno.EINTR, 'Interrupted system call')
+      if (getattr(e, 'errno') == errno.EINTR or
+          (isinstance(getattr(e, 'args'), tuple) and
+           len(e.args) == 2 and e.args[0] == errno.EINTR)):
+        LOG.warning("Interrupted system call", exc_info=1)
+      else:
+        LOG.error("Unexpected error on select")
+      return # TODO: Figure out what to do here. Call spawn_n again?
 
     if not w:
       return
@@ -155,11 +167,10 @@ class Shell(object):
       self._advance_write_buffer(bytes_written)
     except OSError, e:
       if e.errno == errno.EINTR:
-        return
+        return # TODO: Call spawn_n again?
       elif e.errno != errno.EAGAIN:
         format_str = "Encountered error while writing to process with PID %d:%s"
         LOG.error(format_str % (self.pid, e))
-        self.kill()
     else: # This else clause is on the try/except above, not the if/elif
       if bytes_written != len(buffer_contents):
         eventlet.spawn_n(self._write_child_when_able)
@@ -261,3 +272,60 @@ class ShellManager(object):
     if not shell_instance:
       return { constants.NO_SHELL_EXISTS : True }
     result = shell_instance.process_command(command)
+
+  def retrieve_output(self, username, hue_instance_id, shell_pairs):
+    """
+    Called when an output request is received from the client. Sends the request to the appropriate
+    shell instances.
+    """
+    total_cached_output = {}
+    for shell_id, offset in shell_pairs:
+      shell_instance = self._shells.get((username, shell_id))
+      if shell_instance:
+        cached_output = shell_instance.get_cached_output(hue_instance_id, offset) # TODO: Write this method
+        if cached_output:
+          total_cached_output[shell_id] = cached_output
+      else:
+        LOG.warn("User '%s' has no shell with ID '%s'" % (username, shell_id))
+        total_cached_output[shell_id] = { constants.NO_SHELL_EXISTS: True }
+
+    if total_cached_output:
+      LOG.debug("Serving output request from cache")
+      return total_cached_output
+
+    # If a previous greenlet exists for this HID:
+    #   Cancel it
+
+    # Register this greenlet as listening for this HID
+
+    # For each shell_id in shell_pairs:
+    #   If another HID is listening for that shell
+    #     Register this greenlet as interested in that shell
+    #   Else
+    #     Add that shell to the list of shells we'll be listening for
+
+    # Try:
+    #    If we will be listening:
+    #       select with a 50 second timeout
+    #    Else:
+    #       time.sleep(50)
+    # Except ShellInterrupt s:
+    #    # One of the processes we were interested in has output, it's shell_id is specified by s.shell_id
+    #    Result = Read from cache
+    # Else:
+    #    If select timed out:
+    #       Result = keep alive
+    #    Else:
+    #       # Holy shit we have output
+    #       For each shell we listened for that had output:
+    #           Read some amount of output.
+    #           Update cache
+    #       For each shell we listened for that had output:
+    #           s = ShellException(shell_id)
+    #           For each greenlet registered for the shell:
+    #               Interrupt it with s
+    # Finally:
+    #   For all shells we were on the hook for:
+    #     Unregister ourselves
+  
+    # Return result

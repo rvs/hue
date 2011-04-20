@@ -46,7 +46,7 @@ NUM_PAIRS = "numPairs"
 RESTART_HUE = "restartHue"
 
 # HTTP Headers used
-HUE_INSTANCE_ID = "Hue-Instance-ID"
+HUE_INSTANCE_ID = "HTTP_HUE_INSTANCE_ID"
 
 # Required environment variables
 PRESERVED_ENVIRONMENT_VARIABLES = ["JAVA_HOME", "HADOOP_HOME", "PATH", "HOME", "LC_ALL", "LANG",
