@@ -15,6 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# TODO: Green appropriate imports
+
 from desktop.lib.django_util import render
 from django.http import HttpResponse
 import datetime
@@ -22,33 +24,45 @@ from eventlet.green import time
 import simplejson
 import shell.conf
 import shell.constants as constants
+from shell.shellmanager import ShellManager
 
-_cached_shell_types = []
-for item in shell.conf.SHELL_TYPES.keys():
-  nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
-  short_name = shell.conf.SHELL_TYPES[item].short_name.get()
-  _cached_shell_types.append({ constants.NICE_NAME: nice_name,
-                                      constants.KEY_NAME: short_name })
-_cached_shell_types_response = simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True,
-                                                 constants.SHELL_TYPES : _cached_shell_types })
 def index(request):
   return render('index.mako', request, dict(date=datetime.datetime.now()))
 
 def shell_types(request):
-  return HttpResponse(_cached_shell_types_response)
-
-def process_command(request):
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True }))
+  shell_manager = ShellManager.global_instance()
+  return HttpResponse(shell_manager.shell_types_response, mimetype="application/json")
 
 def create(request):
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS : True, constants.SHELL_ID : 1}))
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  key_name = request.POST.get(constants.KEY_NAME, "")
+  result = shell_manager.try_create(username, key_name)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def kill_shell(request):
-  return HttpResponse("Shell killed")
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  shell_id = request.POST.get(constants.SHELL_ID, "")
+  result = shell_manager.kill_shell(username, shell_id)
+  return HttpResponse(result)
+
+def restore_shell(request):
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  shell_id = request.POST.get(constants.SHELL_ID, "")
+  result = shell_manager.get_previous_output(username, shell_id)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
+
+def process_command(request):
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  shell_id = request.POST.get(constants.SHELL_ID, "")
+  command = request.POST.get(constants.COMMAND, "")
+  result = shell_manager.process_command(username, shell_id, command)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def retrieve_output(request):
   time.sleep(12)
   return HttpResponse(simplejson.encoder.JSONEncoder().encode({ 1 : { constants.ALIVE : True,  constants.OUTPUT : ""} }))
 
-def restore_shell(request):
-  return HttpResponse(simplejson.encoder.JSONEncoder().encode({ constants.SUCCESS: False }))

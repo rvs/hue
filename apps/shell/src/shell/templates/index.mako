@@ -9,6 +9,5 @@ ${shared.header("Hue Shell")}
 
 ## the class 'jframe_padded' will give the contents of your window a standard padding
 <div id="index" class="view jframe_padded">
-  <h2>Fetching available shell types...</h2>
 </div>
 ${shared.footer()}
