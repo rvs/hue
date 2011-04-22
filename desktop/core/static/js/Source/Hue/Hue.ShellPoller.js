@@ -175,11 +175,7 @@ Hue.ShellPoller = {
   addToOutputChannel: function(shellId, offset){
       // First let's store the info
       this.additionalReqs.push({shellId: shellId, offset: offset});
-      // If there's no request open, let's send it. Otherwise it'll be taken care of in the
-      // onComplete callback.
-      if(!this.addToOutputReqOpen){
-          this.sendAdditionalReq();
-      }
+      this.sendAdditionalReq();
   },
   
   serializeAdditionalReqs: function(){

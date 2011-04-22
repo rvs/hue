@@ -329,6 +329,17 @@ class ShellManager(object):
       return { constants.NO_SHELL_EXISTS : True }
     return shell_instance.process_command(command)
 
+  def _interrupt_with_output(self, readable):
+    for fd in readable:
+      shell_instance = self._shells_by_fds.get(fd)
+      if not shell_instance:
+        LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
+      else:
+        s = ShellInterrupt(shell_instance)
+        greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
+        for green_let in greenlets_to_notify:
+          eventlet.spawn(green_let.throw, s)
+
   def retrieve_output(self, username, hue_instance_id, shell_pairs):
     """
     Called when an output request is received from the client. Sends the request to the appropriate
@@ -377,7 +388,6 @@ class ShellManager(object):
       try:
         time_remaining = constants.BROWSER_REQUEST_TIMEOUT - (time.time() - time_received)
         readable, writable, exception_occurred = select.select(fds_to_listen_for, [], [], time_remaining)
-        # TODO: All the other exceptions, courtesy of Tornado
       except ShellInterrupt, s:
         offset = offsets_for_shells[s.shell]
         cached_output = s.shell.get_cached_output(offset)
@@ -411,15 +421,7 @@ class ShellManager(object):
                                                  constants.MORE_OUTPUT_AVAILABLE: more_available,
                                                  constants.NEXT_OFFSET: next_offset}
           
-          for fd in readable:
-            shell_instance = self._shells_by_fds.get(fd)
-            if not shell_instance:
-              LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
-            else:
-              s = ShellInterrupt(shell_instance)
-              greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
-              for green_let in greenlets_to_notify:
-                green_let.throw(s)
+          eventlet.spawn_n(self._interrupt_with_output, readable)
           break
     
     if not result:
@@ -443,9 +445,11 @@ class ShellManager(object):
     Adds the given shell_id, offset pairs to the output connection associated with the given Hue
     instance ID.
     """
+    def interrupt(green_let, message):
+      green_let.throw(message)
     new_shells_interrupt = NewShellInterrupt(shell_pairs)
     greenlet_for_hid = self._greenlets_by_hid.get(hue_instance_id)
     if greenlet_for_hid:
-      greenlet_for_hid.throw(new_shells_interrupt)
+      eventlet.spawn_n(interrupt, greenlet_for_hid, new_shells_interrupt) 
     return { constants.SUCCESS : True }
   
