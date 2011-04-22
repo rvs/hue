@@ -253,7 +253,7 @@ class ShellManager(object):
     shell_types = [] # List of available shell types. For each shell type, we have a nice name (e.g. "Python Shell") and a short name (e.g. "python")
     self._command_by_short_name = {} # Map each short name to its command (e.g. ["pig", "-l", "/dev/null"])
     self._meta = {} # Map usernames to utils.UserMetadata objects
-    self._greenlets_by_hid = {} # Map each Hue Instance ID (HID) to greenlets currently fetching output for that HID.
+    self._greenlets_by_hid = {} # Map each Hue Instance ID (HID) to greenlet currently fetching output for that HID.
     self._hids_by_pid = {} # Map each process ID (PID) to the HID whose greenlet is currently doing a "select" on the process's output fd.
     self._greenlets_to_notify = {} # For each PID, maintain a set of greenlets who are also interested in the output from that process, but are not doing the select.
     self._shells_by_fds = {} # Map each file descriptor to the Shell instance whose output it represents.
@@ -278,6 +278,22 @@ class ShellManager(object):
       cls._global_instance = cls()
     return cls._global_instance
 
+  def _cleanup_greenlets_for_removed_pids(self, removed_pids):
+    greenlets_to_cleanup = set()
+    for pid in removed_pids:
+      listening_hid = self._hids_by_pid.get(pid)
+      if listening_hid:
+        greenlet_for_hid = self._greenlets_by_hid.get(listening_hid)
+        if greenlet_for_hid:
+          greenlets_to_cleanup.add(greenlet_for_hid)
+      non_selecting_greenlets = self._greenlets_to_notify.get(pid)
+      if non_selecting_greenlets:
+        greenlets_to_cleanup.update(non_selecting_greenlets)
+    nsi = NewShellInterrupt([])
+    for greenlet_to_notify in greenlets_to_cleanup:
+      if self._greenlet_interruptable.get(greenlet_to_notify):
+        greenlet_to_notify.throw(nsi)
+
   def _handle_periodic(self):
     """
     Called every second. Kills shells which haven't been asked about in constants.SHELL_TIMEOUT
@@ -296,9 +312,11 @@ class ShellManager(object):
           difftime = current_time - shell_instance.time_received
           if difftime >= constants.SHELL_TIMEOUT:
             keys_to_pop.append(key)
+      removed_pids = [self._shells.get(key).pid for key in keys_to_pop]
       for key in keys_to_pop:
         self._cleanup_shell(key)
     finally:
+      eventlet.spawn_n(self._cleanup_greenlets_for_removed_pids, removed_pids)
       eventlet.spawn_after(1, self._handle_periodic)
       LOG.debug("Leaving _handle_periodic")
 

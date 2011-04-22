@@ -21,7 +21,7 @@ script: Shell.js
 description: Defines Shell; a Hue application that extends Hue.JBrowser.
 
 authors:
-- Aditya Acharya
+- Hue
 
 requires: [JFrame/JFrame.Browser, hue-shared/Hue.Request, Core/Element, Core/Native, hue-shared/Hue.ShellPoller, Core/Fx]
 provides: [Shell]
@@ -421,7 +421,7 @@ var Shell = new Class({
       this.input.set("value", "");
     }else{
       if(json.noShellExists){
-        this.errorMessage("Error", "This shell does not exist any more. Please restart this app.");
+        this.shellExited();
       }else if(json.shellKilled){
         this.errorMessage("Error", "This shell has been killed. Please restart this app.");
       }else if(json.bufferExceeded){
@@ -507,7 +507,7 @@ var Shell = new Class({
     var shellId = this.shellId;
     this.shellId = null;
     
-    //Tell CCS.Desktop to stop listening for shellId. Important to do this before
+    //Tell the shell poller to stop listening for shellId. Important to do this before
     //sending the kill shell request because then the resulting output doesn't cause
     //a non-existent callback to be called.
     if(shellId){
