@@ -78,23 +78,12 @@ class Shell(object):
     # when to kill the shell.
     self.time_received = time.time()
     self.last_output_sent = False
+    self.remove_at_next_iteration = False
+    self.destroyed = False
 
-  def kill(self):
-    try:
-      os.kill(self.subprocess.pid, signal.SIGKILL)
-    except OSError, e:
-      LOG.debug("Error calling kill on subprocess %d, might have exited already" % (self.subprocess.pid,))
-    try:
-      os.close(self._fd)
-    except OSError, e:
-      LOG.debug("Error closing file descriptor %d" % (self._fd,))
-    try:
-      os.close(self._child_fd)
-    except OSError, e:
-      LOG.debug("Error closing file descriptor %d" % (self._child_fd,))
-    self._read_buffer.close()
-    self._write_buffer.close()
-    
+  def mark_for_cleanup(self):
+    self.remove_at_next_iteration = True
+
   def get_previous_output(self):
     """
     Called when a Hue session is restored. Returns a tuple of ( all previous output, next offset).
@@ -236,6 +225,24 @@ class Shell(object):
       # TODO: What to do here?
       pass
     return result
+  
+  def destroy(self):
+    try:
+      self._write_buffer.close()
+      self._read_buffer.close()
+
+      os.close(self._fd)
+      os.close(self._child_fd)
+
+      try:
+        LOG.debug("Sending SIGKILL to process with PID %d" % (self.subprocess.pid,))
+        os.kill(self.subprocess.pid, signal.SIGKILL)
+        # We could try figure out which exit statuses are fine and which ones are errors.
+        # But that might be difficult to do since os.wait might block.
+      except OSError:
+        pass # This means the subprocess was already killed, which happens if the command was "quit"
+    finally:
+      self.destroyed = True
 
 class ShellManager(object):
   """
@@ -250,7 +257,7 @@ class ShellManager(object):
     self._hids_by_pid = {} # Map each process ID (PID) to the HID whose greenlet is currently doing a "select" on the process's output fd.
     self._greenlets_to_notify = {} # For each PID, maintain a set of greenlets who are also interested in the output from that process, but are not doing the select.
     self._shells_by_fds = {} # Map each file descriptor to the Shell instance whose output it represents.
-    self._greenlet_interruptable = {}
+    self._greenlet_interruptable = {} # For each greenlet, store if it can be safely interrupted.
     
     for item in shell.conf.SHELL_TYPES.keys():
       nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
@@ -258,17 +265,51 @@ class ShellManager(object):
       shell_types.append({ constants.NICE_NAME: nice_name, constants.KEY_NAME: short_name })
       command = shell.conf.SHELL_TYPES[item].command.get().split()
       self._command_by_short_name[short_name] = command
-
+    
     self.shell_types_response = { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types }
     # We will have to return this a lot so we violate MVC a little bit and store the JSON formatted
     # string instead of the dictionary.
     self.shell_types_response = simplejson.dumps(self.shell_types_response)
+    eventlet.spawn_after(1, self._handle_periodic)
 
   @classmethod
   def global_instance(cls):
     if not hasattr(cls, "_global_instance"):
       cls._global_instance = cls()
     return cls._global_instance
+
+  def _handle_periodic(self):
+    """
+    Called every second. Kills shells which haven't been asked about in constants.SHELL_TIMEOUT
+    seconds (currently 600).
+    """
+    LOG.debug("Entering _handle_periodic")
+    try:
+      keys_to_pop = []
+      current_time = time.time()
+      for key, shell_instance in self._shells.iteritems():
+        if shell_instance.last_output_sent or shell_instance.remove_at_next_iteration:
+          keys_to_pop.append(key)
+        elif shell_instance.subprocess.poll() is not None:
+          keys_to_pop.append(key)
+        else:
+          difftime = current_time - shell_instance.time_received
+          if difftime >= constants.SHELL_TIMEOUT:
+            keys_to_pop.append(key)
+      for key in keys_to_pop:
+        self._cleanup_shell(key) # TODO: Implement this
+    finally:
+      eventlet.spawn_after(1, self._handle_periodic)
+      LOG.debug("Leaving _handle_periodic")
+
+
+  def _cleanup_shell(self, key):
+    shell_instance = self._shells[key]
+    shell_instance.destroy()
+    self._shells.pop(key)
+    username = key[0]
+    self._meta[username].decrement_count()
+    self._shells_by_fds.pop(shell_instance._fd)
 
   def try_create(self, username, key_name):
     """
@@ -305,8 +346,7 @@ class ShellManager(object):
     if not shell_instance:
       response = "User '%s' has no shell with ID '%s'" % (username, shell_id)
     else:
-      shell_instance.kill()
-      # TODO: Clean up metadata for shell and user.
+      shell_instance.mark_for_cleanup()
       response = "Shell successfully killed"
     LOG.debug(response)
     return response
@@ -373,7 +413,12 @@ class ShellManager(object):
     offsets_for_shells = {}
     current_greenlet = eventlet.getcurrent()
     self._greenlets_by_hid[hue_instance_id] = current_greenlet
-    shell_pairs = set(shell_pairs)    
+    shell_pairs = set(shell_pairs)
+    
+    for shell_id, offset in shell_pairs:
+      shell_instance = self._shells.get((username, shell_id))
+      if shell_instance:
+        shell_instance.time_received = time_received
 
     result = None
     while (time.time() - time_received) < constants.BROWSER_REQUEST_TIMEOUT:
@@ -394,6 +439,7 @@ class ShellManager(object):
         break
       
       fds_to_listen_for = []
+      shell_instances_for_listened_fds = {}
       for shell_id, offset in shell_pairs:
         shell_instance = self._shells.get((username, shell_id))
         # Here we can assume shell_instance exists because if it didn't, we would have broken out of
@@ -405,6 +451,7 @@ class ShellManager(object):
           self._greenlets_to_notify[shell_instance.pid].add(current_greenlet)
         else:
           fds_to_listen_for.append(shell_instance._fd)
+          shell_instances_for_listened_fds[shell_instance._fd] = shell_instance
           self._hids_by_pid[shell_instance.pid] = hue_instance_id
       
       try:
@@ -424,9 +471,9 @@ class ShellManager(object):
         else:
           result = {}
           for fd in readable:
-            shell_instance = self._shells_by_fds.get(fd)
-            if not shell_instance:
-              LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
+            shell_instance = shell_instances_for_listened_fds[fd]
+            if shell_instance.destroyed:
+              result[shell_instance.shell_id] = { constants.SHELL_KILLED : True }
             else:
               result[shell_instance.shell_id] = self._read_helper(shell_instance)
           eventlet.spawn_n(self._interrupt_with_output, readable)
