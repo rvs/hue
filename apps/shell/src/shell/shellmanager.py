@@ -36,10 +36,6 @@ from eventlet.green import time
 import logging
 LOG = logging.getLogger(__name__)
 
-class ShellInterrupt(Exception):
-  def __init__(self, shell):
-    self.shell = shell
-
 class NewShellInterrupt(Exception):
   def __init__(self, new_shell_pairs):
     self.new_shell_pairs = new_shell_pairs
@@ -115,7 +111,11 @@ class Shell(object):
     stored in the read buffer. So let's fetch it from there.
     """
     self._read_buffer.seek(offset)
-    return self._read_buffer.read()
+    next_output = self._read_buffer.read()
+    if not next_output:
+      return None
+    more_available = len(next_output) >= constants.OS_READ_AMOUNT
+    return (next_output, more_available, self._output_buffer_length)
 
   def process_command(self, command):
     LOG.debug("Command received for pid %d : '%s'" % (self.pid, command,))
@@ -205,7 +205,7 @@ class Shell(object):
     """
     Reads up to constants.OS_READ_AMOUNT bytes from the child subprocess's stdout. Returns a tuple
     of (output, more_available). The second parameter indicates whether more output might be
-    obtained by another call to _read_child_output.
+    obtained by another call to read_child_output.
     """
     ofd = self._fd
     result = None
@@ -250,6 +250,7 @@ class ShellManager(object):
     self._hids_by_pid = {} # Map each process ID (PID) to the HID whose greenlet is currently doing a "select" on the process's output fd.
     self._greenlets_to_notify = {} # For each PID, maintain a set of greenlets who are also interested in the output from that process, but are not doing the select.
     self._shells_by_fds = {} # Map each file descriptor to the Shell instance whose output it represents.
+    self._greenlet_interruptable = {}
     
     for item in shell.conf.SHELL_TYPES.keys():
       nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
@@ -330,16 +331,37 @@ class ShellManager(object):
     return shell_instance.process_command(command)
 
   def _interrupt_with_output(self, readable):
+    greenlets_set = set()
     for fd in readable:
       shell_instance = self._shells_by_fds.get(fd)
       if not shell_instance:
         LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
       else:
-        s = ShellInterrupt(shell_instance)
         greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
-        for green_let in greenlets_to_notify:
-          eventlet.spawn(green_let.throw, s)
+        greenlets_set.update(greenlets_to_notify)
+    nsi = NewShellInterrupt([])
+    for greenlet_to_notify in greenlets_set:
+      if self._greenlet_interruptable.get(greenlet_to_notify):
+        greenlet_to_notify.throw(nsi)
 
+  def _read_helper(self, shell_instance, offset=None):
+    if offset is not None:
+      cache_read_result = shell_instance.get_cached_output(offset)
+      if not cache_read_result:
+        return None
+      total_output, more_available, next_offset = cache_read_result
+    else:
+      total_output, more_available, next_offset = shell_instance.read_child_output()
+    # If this is the last output from the shell, let's tell the JavaScript that.
+    if shell_instance.subprocess.poll() is None:
+      status = constants.ALIVE
+    else:
+      status = constants.EXITED
+      shell_instance.last_output_sent = True
+    return { status : True, constants.OUTPUT : total_output,
+            constants.MORE_OUTPUT_AVAILABLE : more_available,
+            constants.NEXT_OFFSET : next_offset }
+ 
   def retrieve_output(self, username, hue_instance_id, shell_pairs):
     """
     Called when an output request is received from the client. Sends the request to the appropriate
@@ -359,7 +381,7 @@ class ShellManager(object):
         shell_instance = self._shells.get((username, shell_id))
         if shell_instance:
           offsets_for_shells[shell_instance] = offset
-          cached_output = shell_instance.get_cached_output(offset)
+          cached_output = self._read_helper(shell_instance, offset)
           if cached_output:
             total_cached_output[shell_id] = cached_output
         else:
@@ -387,14 +409,11 @@ class ShellManager(object):
       
       try:
         time_remaining = constants.BROWSER_REQUEST_TIMEOUT - (time.time() - time_received)
+        self._greenlet_interruptable[current_greenlet] = True
         readable, writable, exception_occurred = select.select(fds_to_listen_for, [], [], time_remaining)
-      except ShellInterrupt, s:
-        offset = offsets_for_shells[s.shell]
-        cached_output = s.shell.get_cached_output(offset)
-        total_cached_output[s.shell.shell_id] = cached_output
-        result = total_cached_output
-        break
+        self._greenlet_interruptable[current_greenlet] = False
       except NewShellInterrupt, nsi:
+        self._greenlet_interruptable[current_greenlet] = False
         # Here, I'm assuming that we won't have a situation where one of the (shell_id, offset)
         # tuples in nsi.new_shell_pairs has the same shell_id as an item in shell_pairs, but
         # an offset with a different (has to be higher) number.
@@ -409,18 +428,7 @@ class ShellManager(object):
             if not shell_instance:
               LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
             else:
-              total_output, more_available, next_offset = shell_instance.read_child_output()
-              
-              # If this is the last output from the shell, let's tell the JavaScript that.
-              if shell_instance.subprocess.poll() is None:
-                status = constants.ALIVE
-              else:
-                status = constants.EXITED
-                shell_instance.last_output_sent = True
-              result[shell_instance.shell_id] = { status: True, constants.OUTPUT:total_output,
-                                                 constants.MORE_OUTPUT_AVAILABLE: more_available,
-                                                 constants.NEXT_OFFSET: next_offset}
-          
+              result[shell_instance.shell_id] = self._read_helper(shell_instance)
           eventlet.spawn_n(self._interrupt_with_output, readable)
           break
     

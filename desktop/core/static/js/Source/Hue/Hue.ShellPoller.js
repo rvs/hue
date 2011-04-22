@@ -65,6 +65,7 @@ Hue.ShellPoller = {
     this.initialized = true;
     this.requestsStopped = true;
     this.dispatchInfo = {};
+    this.backoffTime = 1;
   },
 
   listenForShell: function(shellId, offset, callback){
@@ -121,11 +122,13 @@ Hue.ShellPoller = {
 
   outputRequestFailed: function(){
       this.requestOpen = false;
-      setTimeout(this.openOutputChannel.bind(this), 0);
+      setTimeout(this.openOutputChannel.bind(this), this.backoffTime);
+      this.backoffTime *= 2;
   },
   
   outputReceived: function(json, text){
       this.requestOpen = false;
+      this.backoffTime = 1;
 
       var closeOutputChannel = true; // Used to determine if we should issue a new output request.
       if(json.periodicResponse){
@@ -198,6 +201,7 @@ Hue.ShellPoller = {
   },
   
   addToOutputCompleted: function(json, text){
+      this.backoffTime = 1;
       this.addToOutputReqOpen = false;
       if(json.success){
           this.additionalReqs.splice(0, this.numAdditionalReqsSent);
@@ -217,6 +221,7 @@ Hue.ShellPoller = {
   addToOutputFailed: function(){
       this.addToOutputReqOpen = false;
       this.numAdditionalReqsSent = 0;
-      setTimeout(this.sendAdditionalReq.bind(this), 0);
+      setTimeout(this.sendAdditionalReq.bind(this), this.backoffTime);
+      this.backoffTime *= 2;
   }
 };
