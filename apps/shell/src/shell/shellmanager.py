@@ -297,7 +297,7 @@ class ShellManager(object):
           if difftime >= constants.SHELL_TIMEOUT:
             keys_to_pop.append(key)
       for key in keys_to_pop:
-        self._cleanup_shell(key) # TODO: Implement this
+        self._cleanup_shell(key)
     finally:
       eventlet.spawn_after(1, self._handle_periodic)
       LOG.debug("Leaving _handle_periodic")
@@ -359,6 +359,7 @@ class ShellManager(object):
     shell_instance = self._shells.get((username, shell_id))
     if not shell_instance:
       return { constants.SHELL_KILLED : True }
+    shell_instance.time_received = time.time()
     output, next_offset = shell_instance.get_previous_output()
     commands = shell_instance.get_previous_commands()
     return { constants.SUCCESS: True, constants.OUTPUT: output, constants.NEXT_OFFSET: next_offset,
@@ -368,6 +369,7 @@ class ShellManager(object):
     shell_instance = self._shells.get((username, shell_id))
     if not shell_instance:
       return { constants.NO_SHELL_EXISTS : True }
+    shell_instance.time_received = time.time()
     return shell_instance.process_command(command)
 
   def _interrupt_with_output(self, readable):
