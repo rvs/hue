@@ -157,9 +157,11 @@ class Shell(object):
           (isinstance(getattr(e, 'args'), tuple) and
            len(e.args) == 2 and e.args[0] == errno.EINTR)):
         LOG.warning("Interrupted system call", exc_info=1)
+        eventlet.spawn_n(self._write_child_when_able)
       else:
         LOG.error("Unexpected error on select")
-      return # TODO: Figure out what to do here. Call spawn_n again?
+        self.mark_for_cleanup()
+      return
 
     if not w:
       return
@@ -169,10 +171,11 @@ class Shell(object):
       self._advance_write_buffer(bytes_written)
     except OSError, e:
       if e.errno == errno.EINTR:
-        return # TODO: Call spawn_n again?
+        eventlet.spawn_n(self._write_child_when_able)
       elif e.errno != errno.EAGAIN:
         format_str = "Encountered error while writing to process with PID %d:%s"
-        LOG.error(format_str % (self.pid, e)) # TODO: What to do here?
+        LOG.error(format_str % (self.pid, e))
+        self.mark_for_cleanup()
     else: # This else clause is on the try/except above, not the if/elif
       if bytes_written != len(buffer_contents):
         eventlet.spawn_n(self._write_child_when_able)
@@ -216,14 +219,11 @@ class Shell(object):
       elif e.errno != errno.EAGAIN:
         format_str = "Encountered error while reading from process with PID %d : %s"
         LOG.error( format_str % (self.subprocess.pid, e))
-        # self.mark_for_cleanup() TODO: What to do here?
+        self.mark_for_cleanup()
     else:
       more_available = length >= constants.OS_READ_AMOUNT
       result = (next_output, more_available, self._output_buffer_length)
     
-    if not result:
-      # TODO: What to do here?
-      pass
     return result
   
   def destroy(self):
@@ -406,12 +406,12 @@ class ShellManager(object):
 
   def _read_helper(self, shell_instance, offset=None):
     if offset is not None:
-      cache_read_result = shell_instance.get_cached_output(offset)
-      if not cache_read_result:
-        return None
-      total_output, more_available, next_offset = cache_read_result
+      read_result = shell_instance.get_cached_output(offset)
     else:
-      total_output, more_available, next_offset = shell_instance.read_child_output()
+      read_result = shell_instance.read_child_output()
+    if not read_result:
+      return None
+    total_output, more_available, next_offset = read_result
     # If this is the last output from the shell, let's tell the JavaScript that.
     if shell_instance.subprocess.poll() is None:
       status = constants.ALIVE

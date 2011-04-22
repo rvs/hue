@@ -226,7 +226,7 @@ var Shell = new Class({
     if(json.success){
       this.buildSelectionMenu(json.shellTypes);
     }else{
-      //TODO: What to do here?
+      this.errorMessage('Error', 'Shell types request returned invalid value: '+text);
     }
   },
 
@@ -443,7 +443,7 @@ var Shell = new Class({
       }else if(json.shellKilled){
         this.shellExited();
       }else{
-        // TODO: What to do here?
+        this.errorMessage('Error','Received invalid JSON response object from the Shell poller');
       }
     }
   },
