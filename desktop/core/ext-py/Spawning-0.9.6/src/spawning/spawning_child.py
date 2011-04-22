@@ -343,10 +343,21 @@ def main():
         socket.fromfd(int(httpd_fd), socket.AF_INET, socket.SOCK_STREAM))
 
     if options.ssl_certificate and options.ssl_private_key:
+        # The way spawning works is that there's a parent process which forks off long-lived
+        # children, each of which can be multithreaded. What we're using is a single-threaded,
+        # single-process server that does things asynchronously (using coroutines). Spawning creates
+        # a socket and then calls fork() at least once. In the child process, it exec()'s something
+        # else, so as a result the child loses all context. It puts the file descriptor for the
+        # socket as a command-line argument to the child, which then uses the fromfd function of the
+        # socket module to create a socket object. Unfortunately, the resulting object isn't quite
+        # the same as the socket created by the parent. In particular, when we go to upgrade this
+        # socket to ssl using eventlet's wrap_with_ssl(), it fails because it expects sock.fd to be
+        # of type "socket._socketobject", but it's actually of type "_socket.socket". Patching
+        # up the object in this way solves this problem.
         sock.fd = socket._socketobject(_sock=sock.fd)
         sock = eventlet.wrap_ssl(sock, certfile=options.ssl_certificate, keyfile=options.ssl_private_key, server_side=True)
-    serve_from_child(
-        sock, config, controller_pid)
+
+    serve_from_child(sock, config, controller_pid)
 
 if __name__ == '__main__':
     main()

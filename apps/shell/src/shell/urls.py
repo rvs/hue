@@ -25,4 +25,5 @@ urlpatterns = patterns('shell',
   url(r'^kill_shell/?$', 'views.kill_shell'),
   url(r'^create/?$', 'views.create'),
   url(r'^retrieve_output/?$', 'views.retrieve_output'),
+  url(r'^add_to_output/?$', 'views.add_to_output'),
 )

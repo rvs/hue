@@ -19,8 +19,6 @@ This module handles I/O with shells.  Much of the functionality has been pushed 
 Shell class itself, but a lot also happens in ShellManager.
 """
 
-# TODO: Green appropriate imports
-
 import cStringIO
 import eventlet
 import desktop.lib.i18n
@@ -34,7 +32,6 @@ import signal
 import simplejson
 import subprocess
 from eventlet.green import time
-import tty
 
 import logging
 LOG = logging.getLogger(__name__)
@@ -42,6 +39,10 @@ LOG = logging.getLogger(__name__)
 class ShellInterrupt(Exception):
   def __init__(self, shell):
     self.shell = shell
+
+class NewShellInterrupt(Exception):
+  def __init__(self, new_shell_pairs):
+    self.new_shell_pairs = new_shell_pairs
 
 class Shell(object):
   """
@@ -56,10 +57,6 @@ class Shell(object):
         subprocess_env[item] = value
 
     parent, child = pty.openpty()
-    try:
-      tty.setraw(parent)
-    except tty.error:
-      LOG.debug("Could not set parent fd to raw mode, user will see echoed input.")
     
     try:
       p = subprocess.Popen(shell_command, stdin=child, stdout=child, stderr=child,
@@ -69,12 +66,12 @@ class Shell(object):
       os.close(child)
       raise
 
-    # State that isn't touched by any other classes.
+    # State that shouldn't be touched by any other classes.
     self._output_buffer_length = 0
     self._commands = []
     self._fd = parent
     self._child_fd = child
-    self._subprocess = p
+    self.subprocess = p
     self.pid = p.pid
     self._write_buffer = cStringIO.StringIO()
     self._read_buffer = cStringIO.StringIO()
@@ -84,12 +81,13 @@ class Shell(object):
     # Timestamp that is updated on shell creation and on every output request. Used so that we know
     # when to kill the shell.
     self.time_received = time.time()
+    self.last_output_sent = False
 
   def kill(self):
     try:
-      os.kill(self._subprocess.pid, signal.SIGKILL)
+      os.kill(self.subprocess.pid, signal.SIGKILL)
     except OSError, e:
-      LOG.debug("Error calling kill on subprocess %d, might have exited already" % (self._subprocess.pid,))
+      LOG.debug("Error calling kill on subprocess %d, might have exited already" % (self.subprocess.pid,))
     try:
       os.close(self._fd)
     except OSError, e:
@@ -98,7 +96,9 @@ class Shell(object):
       os.close(self._child_fd)
     except OSError, e:
       LOG.debug("Error closing file descriptor %d" % (self._child_fd,))
-
+    self._read_buffer.close()
+    self._write_buffer.close()
+    
   def get_previous_output(self):
     """
     Called when a Hue session is restored. Returns a tuple of ( all previous output, next offset).
@@ -154,10 +154,11 @@ class Shell(object):
     if not buffer_contents:
       return
     
-    fd = self._fd
     try:
-      r, w, x = select.select([],[fd],[])
+      r, w, x = select.select([],[self._fd],[])
     except Exception, e:
+      # The next 9 lines are taken from Facebook's Tornado project, which is open-sourced under
+      # the Apache license.     
       # Depending on python version and poll implementation,
       # different exception types may be thrown and there are
       # two ways EINTR might be signaled:
@@ -175,14 +176,14 @@ class Shell(object):
       return
 
     try:
-      bytes_written = os.write(fd, buffer_contents)
+      bytes_written = os.write(self._fd, buffer_contents)
       self._advance_write_buffer(bytes_written)
     except OSError, e:
       if e.errno == errno.EINTR:
         return # TODO: Call spawn_n again?
       elif e.errno != errno.EAGAIN:
         format_str = "Encountered error while writing to process with PID %d:%s"
-        LOG.error(format_str % (self.pid, e))
+        LOG.error(format_str % (self.pid, e)) # TODO: What to do here?
     else: # This else clause is on the try/except above, not the if/elif
       if bytes_written != len(buffer_contents):
         eventlet.spawn_n(self._write_child_when_able)
@@ -207,6 +208,7 @@ class Shell(object):
     obtained by another call to _read_child_output.
     """
     ofd = self._fd
+    result = None
     try:
       next_output = os.read(ofd, constants.OS_READ_AMOUNT)
       self._read_buffer.seek(self._output_buffer_length)
@@ -224,35 +226,39 @@ class Shell(object):
         pass
       elif e.errno != errno.EAGAIN:
         format_str = "Encountered error while reading from process with PID %d : %s"
-        LOG.error( format_str % (self._subprocess.pid, e))
+        LOG.error( format_str % (self.subprocess.pid, e))
         # self.mark_for_cleanup() TODO: What to do here?
-    more_available = length >= constants.OS_READ_AMOUNT
-    return (next_output, more_available, self._output_buffer_length)
-
+    else:
+      more_available = length >= constants.OS_READ_AMOUNT
+      result = (next_output, more_available, self._output_buffer_length)
+    
+    if not result:
+      # TODO: What to do here?
+      pass
+    return result
 
 class ShellManager(object):
   """
   The class that manages state for all shell subprocesses.
   """
   def __init__(self):
-    self._shells = {}
-    self._shell_types = []
-    self._command_by_short_name = {}
-    self._meta = {}
-    self._greenlets_by_hid = {}
-    self._hids_by_pid = {}
-    self._greenlets_to_notify = {}
-    self._shells_by_fds = {}
+    self._shells = {} # Keys are (username, shell_id) tuples. Each user has his/her own set of shell ids.
+    shell_types = [] # List of available shell types. For each shell type, we have a nice name (e.g. "Python Shell") and a short name (e.g. "python")
+    self._command_by_short_name = {} # Map each short name to its command (e.g. ["pig", "-l", "/dev/null"])
+    self._meta = {} # Map usernames to utils.UserMetadata objects
+    self._greenlets_by_hid = {} # Map each Hue Instance ID (HID) to greenlets currently fetching output for that HID.
+    self._hids_by_pid = {} # Map each process ID (PID) to the HID whose greenlet is currently doing a "select" on the process's output fd.
+    self._greenlets_to_notify = {} # For each PID, maintain a set of greenlets who are also interested in the output from that process, but are not doing the select.
+    self._shells_by_fds = {} # Map each file descriptor to the Shell instance whose output it represents.
     
     for item in shell.conf.SHELL_TYPES.keys():
       nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
       short_name = shell.conf.SHELL_TYPES[item].short_name.get()
-      self._shell_types.append({ constants.NICE_NAME: nice_name,
-                                constants.KEY_NAME: short_name })
+      shell_types.append({ constants.NICE_NAME: nice_name, constants.KEY_NAME: short_name })
       command = shell.conf.SHELL_TYPES[item].command.get().split()
       self._command_by_short_name[short_name] = command
 
-    self.shell_types_response = { constants.SUCCESS: True, constants.SHELL_TYPES: self._shell_types }
+    self.shell_types_response = { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types }
     # We will have to return this a lot so we violate MVC a little bit and store the JSON formatted
     # string instead of the dictionary.
     self.shell_types_response = simplejson.dumps(self.shell_types_response)
@@ -274,6 +280,7 @@ class ShellManager(object):
 
     if not username in self._meta:
       self._meta[username] = utils.UserMetadata(username)
+
     user_metadata = self._meta[username]
     shell_id = user_metadata.get_next_id()
     try:
@@ -286,7 +293,7 @@ class ShellManager(object):
     LOG.debug("Shell successfully created")
     user_metadata.increment_count()
     self._shells[(username, shell_id)] = shell_instance
-    self._shells_by_fds[(username, shell_instance._fd)] = shell_instance
+    self._shells_by_fds[shell_instance._fd] = shell_instance
     return { constants.SUCCESS : True, constants.SHELL_ID : shell_id }
 
   def kill_shell(self, username, shell_id):
@@ -298,6 +305,7 @@ class ShellManager(object):
       response = "User '%s' has no shell with ID '%s'" % (username, shell_id)
     else:
       shell_instance.kill()
+      # TODO: Clean up metadata for shell and user.
       response = "Shell successfully killed"
     LOG.debug(response)
     return response
@@ -319,100 +327,125 @@ class ShellManager(object):
     shell_instance = self._shells.get((username, shell_id))
     if not shell_instance:
       return { constants.NO_SHELL_EXISTS : True }
-    result = shell_instance.process_command(command)
+    return shell_instance.process_command(command)
 
   def retrieve_output(self, username, hue_instance_id, shell_pairs):
     """
     Called when an output request is received from the client. Sends the request to the appropriate
     shell instances.
     """
+    
+    time_received = time.time()
     total_cached_output = {}
     offsets_for_shells = {}
+    current_greenlet = eventlet.getcurrent()
+    self._greenlets_by_hid[hue_instance_id] = current_greenlet
+    shell_pairs = set(shell_pairs)    
+
+    result = None
+    while (time.time() - time_received) < constants.BROWSER_REQUEST_TIMEOUT:
+      for shell_id, offset in shell_pairs:
+        shell_instance = self._shells.get((username, shell_id))
+        if shell_instance:
+          offsets_for_shells[shell_instance] = offset
+          cached_output = shell_instance.get_cached_output(offset)
+          if cached_output:
+            total_cached_output[shell_id] = cached_output
+        else:
+          LOG.warn("User '%s' has no shell with ID '%s'" % (username, shell_id))
+          total_cached_output[shell_id] = { constants.NO_SHELL_EXISTS: True }
+      
+      if total_cached_output:
+        LOG.debug("Serving output request from cache")
+        result = total_cached_output
+        break
+      
+      fds_to_listen_for = []
+      for shell_id, offset in shell_pairs:
+        shell_instance = self._shells.get((username, shell_id))
+        # Here we can assume shell_instance exists because if it didn't, we would have broken out of
+        # the while loop above and we wouldn't be executing this code.
+        listening_hid = self._hids_by_pid.get(shell_instance.pid)
+        if listening_hid is not None and listening_hid != hue_instance_id:
+          if not shell_instance.pid in self._greenlets_to_notify:
+            self._greenlets_to_notify[shell_instance.pid] = set()
+          self._greenlets_to_notify[shell_instance.pid].add(current_greenlet)
+        else:
+          fds_to_listen_for.append(shell_instance._fd)
+          self._hids_by_pid[shell_instance.pid] = hue_instance_id
+      
+      try:
+        time_remaining = constants.BROWSER_REQUEST_TIMEOUT - (time.time() - time_received)
+        readable, writable, exception_occurred = select.select(fds_to_listen_for, [], [], time_remaining)
+        # TODO: All the other exceptions, courtesy of Tornado
+      except ShellInterrupt, s:
+        offset = offsets_for_shells[s.shell]
+        cached_output = s.shell.get_cached_output(offset)
+        total_cached_output[s.shell.shell_id] = cached_output
+        result = total_cached_output
+        break
+      except NewShellInterrupt, nsi:
+        # Here, I'm assuming that we won't have a situation where one of the (shell_id, offset)
+        # tuples in nsi.new_shell_pairs has the same shell_id as an item in shell_pairs, but
+        # an offset with a different (has to be higher) number.
+        shell_pairs.update(nsi.new_shell_pairs)  
+      else:
+        if not readable:
+          result = { constants.PERIODIC_RESPONSE: True }
+        else:
+          result = {}
+          for fd in readable:
+            shell_instance = self._shells_by_fds.get(fd)
+            if not shell_instance:
+              LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
+            else:
+              total_output, more_available, next_offset = shell_instance.read_child_output()
+              
+              # If this is the last output from the shell, let's tell the JavaScript that.
+              if shell_instance.subprocess.poll() is None:
+                status = constants.ALIVE
+              else:
+                status = constants.EXITED
+                shell_instance.last_output_sent = True
+              result[shell_instance.shell_id] = { status: True, constants.OUTPUT:total_output,
+                                                 constants.MORE_OUTPUT_AVAILABLE: more_available,
+                                                 constants.NEXT_OFFSET: next_offset}
+          
+          for fd in readable:
+            shell_instance = self._shells_by_fds.get(fd)
+            if not shell_instance:
+              LOG.error("Shell for readable file descriptor '%d' is missing" % (fd,))
+            else:
+              s = ShellInterrupt(shell_instance)
+              greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
+              for green_let in greenlets_to_notify:
+                green_let.throw(s)
+          break
+    
+    if not result:
+      result = { constants.PERIODIC_RESPONSE: True }
+    
+    self._greenlets_by_hid.pop(hue_instance_id)
     for shell_id, offset in shell_pairs:
       shell_instance = self._shells.get((username, shell_id))
       if shell_instance:
-        offsets_for_shells[shell_instance] = offset
-        cached_output = shell_instance.get_cached_output(offset)
-        if cached_output:
-          total_cached_output[shell_id] = cached_output
-      else:
-        LOG.warn("User '%s' has no shell with ID '%s'" % (username, shell_id))
-        total_cached_output[shell_id] = { constants.NO_SHELL_EXISTS: True }
-
-    if total_cached_output:
-      LOG.debug("Serving output request from cache")
-      return total_cached_output
-
-    current_greenlet = eventlet.getcurrent()
-    prev_greenlet_for_tab = self._greenlets_by_hid.pop(hue_instance_id, None)
-    if prev_greenlet_for_tab:
-      if prev_greenlet_for_tab is not current_greenlet:
-        prev_greenlet_for_tab.throw()
-    
-    self._greenlets_by_hid[hue_instance_id] = current_greenlet
-
-    fds_to_listen_for = []
-    for shell_id, offset in shell_pairs:
-      shell_instance = self._shells.get((username, shell_id))
-      if self._hids_by_pid.get(shell_instance.pid):
-        if not shell_instance.pid in self._greenlets_to_notify:
-          self._greenlets_to_notify[shell_instance.pid] = []
-        self._greenlets_to_notify[shell_instance.pid].append(current_greenlet)
-      else:
-        fds_to_listen_for.append(shell_instance._fd)
-        self._hids_by_pid[shell_instance.pid] = hue_instance_id
-
-    try:
-      if fds_to_listen_for:
-        r, w, x = select.select(fds_to_listen_for, [], [], constants.BROWSER_REQUEST_TIMEOUT)
-      else:
-        time.sleep(constants.BROWSER_REQUEST_TIMEOUT)
-    except ShellInterrupt, s:
-      offset = offsets_for_shells[s.shell]
-      cached_output = s.shell.get_cached_output(offset)
-      total_cached_output[s.shell.shell_id] = cached_output
-      result = total_cached_output
-    except GreenletExit, ge:
-      result = { constants.CANCELLED : True }
-    else:
-      if not r:
-        result = { constants.PERIODIC_RESPONSE : True }
-      else:
-        result = {}
-        for fd in r:
-          shell_instance = self._shells_by_fds.get((username, fd))
-          if not shell_instance:
-            LOG.warn("Shell for readable file descriptor %d is missing" % (fd,))
-          else:
-            total_output, more_available, next_offset = shell_instance.read_child_output()
-
-          # If this is the last output from the shell, let's tell the JavaScript that.
-          if shell_instance._subprocess.poll() == None:
-            status = constants.ALIVE
-          else:
-            status = constants.EXITED
-            shell_instance.last_output_sent = True
-
-          result[shell_instance.shell_id] = { status: True, constants.OUTPUT: total_output,
-              constants.MORE_OUTPUT_AVAILABLE: more_available, constants.NEXT_OFFSET: next_offset}
-
-        for fd in r:
-          shell_instance = self._shells_by_fds.get((username, fd))
-          if shell_instance:
-            s = ShellInterrupt(shell_instance)
-            greenlets_to_notify = self._greenlets_to_notify.get(shell_instance.pid, [])
-            for item in greenlets_to_notify:
-              item.throw(s)
-
-    finally:
-      for shell_id, offset in shell_pairs:
-        shell_instance = self._shells.get((username, shell_id))
         if self._hids_by_pid.get(shell_instance.pid) == hue_instance_id:
           self._hids_by_pid.pop(shell_instance.pid)
         else:
           try:
             self._greenlets_to_notify[shell_instance.pid].remove(current_greenlet)
-          except ValueError:
-            LOG.warn("Greenlet for pid %d was not found in list of listening greenlets" % (shell_instance.pid,))
-
+          except KeyError:
+            LOG.error("Greenlet for pid %d was not found in set of listening greenlets" % (shell_instance.pid,))
     return result
+  
+  def add_to_output(self, username, hue_instance_id, shell_pairs):
+    """
+    Adds the given shell_id, offset pairs to the output connection associated with the given Hue
+    instance ID.
+    """
+    new_shells_interrupt = NewShellInterrupt(shell_pairs)
+    greenlet_for_hid = self._greenlets_by_hid.get(hue_instance_id)
+    if greenlet_for_hid:
+      greenlet_for_hid.throw(new_shells_interrupt)
+    return { constants.SUCCESS : True }
+  

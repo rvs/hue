@@ -52,12 +52,12 @@ Hue.ShellPoller = {
       onSuccess: this.outputReceived.bind(this),
       onFailure: this.outputRequestFailed.bind(this)
     });
-    /*this.addToOutputReq = new Request.JSON({
+    this.addToOutputReq = new Request.JSON({
       method: 'post',
       url: '/shell/add_to_output',
       onSuccess: this.addToOutputCompleted.bind(this),
       onFailure: this.addToOutputFailed.bind(this)
-    });*/
+    });
     this.numAdditionalReqsSent = 0;
     this.additionalReqs = new Array();
     this.addToOutputReqOpen = false;
@@ -78,17 +78,15 @@ Hue.ShellPoller = {
 
       // If an output request is already open, use the secondary channel to add the new shell and
       // offset to the existing output request.
-      /*if(this.requestOpen){
+      if(this.requestOpen){
           this.addToOutputChannel(shellId, offset);
-      }*/
+      }
       
       // We might be between openOutputChannel calls, so check to see if we've stopped
       // the requests or if we're just in between calls. If we've stopped, restart them.
       if(this.requestsStopped){
           this.requestsStopped = false;
           this.openOutputChannel();          
-          // We use a delay of 0 so that the spinner in the browser tab doesn't go forever.
-          //this.openOutputChannel.delay(0, this);
       }
   },
   
@@ -172,7 +170,7 @@ Hue.ShellPoller = {
           // Let's set this flag to true so that we can reopen the channel on the next listener.
           this.requestsStopped = true;
       }
-  }/*,
+  },
   
   addToOutputChannel: function(shellId, offset){
       // First let's store the info
@@ -209,7 +207,8 @@ Hue.ShellPoller = {
           this.additionalReqs.splice(0, this.numAdditionalReqsSent);
           this.numAdditionalReqsSent = 0;
           if(this.additionalReqs.length){
-              setTimeout(this.sendAdditionalReq.bind(this), 0);
+              this.sendAdditionalReq.delay(0, this);
+	      setTimeout(this.sendAdditionalReq.bind(this), 0);
           }
       }else if(json.restartHue){
           alert("Your version of Hue is not up to date. Please restart your browser.");
@@ -223,5 +222,5 @@ Hue.ShellPoller = {
       this.addToOutputReqOpen = false;
       this.numAdditionalReqsSent = 0;
       setTimeout(this.sendAdditionalReq.bind(this), 0);
-  }*/
+  }
 };

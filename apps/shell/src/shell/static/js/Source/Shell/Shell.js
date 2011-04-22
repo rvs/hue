@@ -120,9 +120,7 @@ var Shell = new Class({
       duration: 200
     });
 
-    // The command-sending request.  We don't need this to be perpetually open,
-    // but rather to be something that we can reuse repeatedly to send commands
-    // to the subprocess running on the server.
+    // The command-sending request.
     this.commandReq = new Request.JSON({
       method: 'post',
       url: '/shell/process_command',

@@ -15,12 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Green appropriate imports
-
 from desktop.lib.django_util import render
 from django.http import HttpResponse
-import datetime
-from eventlet.green import time
 import simplejson
 import shell.conf
 import shell.constants as constants
@@ -28,7 +24,7 @@ import shell.utils as utils
 from shell.shellmanager import ShellManager
 
 def index(request):
-  return render('index.mako', request, dict(date=datetime.datetime.now()))
+  return render('index.mako', request, {})
 
 def shell_types(request):
   shell_manager = ShellManager.global_instance()
@@ -37,36 +33,44 @@ def shell_types(request):
 def create(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  key_name = request.POST.get(constants.KEY_NAME, "")
+  key_name = request.POST[constants.KEY_NAME]
   result = shell_manager.try_create(username, key_name)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def kill_shell(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  shell_id = request.POST.get(constants.SHELL_ID, "")
+  shell_id = request.POST[constants.SHELL_ID]
   result = shell_manager.kill_shell(username, shell_id)
   return HttpResponse(result)
 
 def restore_shell(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  shell_id = request.POST.get(constants.SHELL_ID, "")
+  shell_id = request.POST[constants.SHELL_ID]
   result = shell_manager.get_previous_output(username, shell_id)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def process_command(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  shell_id = request.POST.get(constants.SHELL_ID, "")
-  command = request.POST.get(constants.COMMAND, "")
+  shell_id = request.POST[constants.SHELL_ID]
+  command = request.POST[constants.COMMAND]
   result = shell_manager.process_command(username, shell_id, command)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def retrieve_output(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  hue_instance_id = request.META.get(constants.HUE_INSTANCE_ID, "")
+  hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
   shell_pairs = utils.parse_shell_pairs(request)
   result = shell_manager.retrieve_output(username, hue_instance_id, shell_pairs)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
+
+def add_to_output(request):
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
+  shell_pairs = utils.parse_shell_pairs(request)
+  result = shell_manager.add_to_output(username, hue_instance_id, shell_pairs)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
