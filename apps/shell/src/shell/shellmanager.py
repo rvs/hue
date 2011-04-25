@@ -278,6 +278,10 @@ class ShellManager(object):
       cls._global_instance = cls()
     return cls._global_instance
 
+  def _interrupt_conditionally(self, green_let, message):
+    if self._greenlet_interruptable.get(green_let):
+      green_let.throw(message)
+
   def _cleanup_greenlets_for_removed_pids(self, removed_pids):
     greenlets_to_cleanup = set()
     for pid in removed_pids:
@@ -291,8 +295,7 @@ class ShellManager(object):
         greenlets_to_cleanup.update(non_selecting_greenlets)
     nsi = NewShellInterrupt([])
     for greenlet_to_notify in greenlets_to_cleanup:
-      if self._greenlet_interruptable.get(greenlet_to_notify):
-        greenlet_to_notify.throw(nsi)
+      eventlet.spawn_n(self._interrupt_conditionally, greenlet_to_notify, nsi)
 
   def _handle_periodic(self):
     """
@@ -401,8 +404,7 @@ class ShellManager(object):
         greenlets_set.update(greenlets_to_notify)
     nsi = NewShellInterrupt([])
     for greenlet_to_notify in greenlets_set:
-      if self._greenlet_interruptable.get(greenlet_to_notify):
-        greenlet_to_notify.throw(nsi)
+      eventlet.spawn_n(self._interrupt_conditionally, greenlet_to_notify, nsi)
 
   def _read_helper(self, shell_instance, offset=None):
     if offset is not None:
@@ -520,11 +522,9 @@ class ShellManager(object):
     Adds the given shell_id, offset pairs to the output connection associated with the given Hue
     instance ID.
     """
-    def interrupt(green_let, message):
-      green_let.throw(message)
     new_shells_interrupt = NewShellInterrupt(shell_pairs)
     greenlet_for_hid = self._greenlets_by_hid.get(hue_instance_id)
     if greenlet_for_hid:
-      eventlet.spawn_n(interrupt, greenlet_for_hid, new_shells_interrupt) 
+      eventlet.spawn_n(self._interrupt_conditionally, greenlet_for_hid, new_shells_interrupt) 
     return { constants.SUCCESS : True }
   
