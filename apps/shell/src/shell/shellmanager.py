@@ -22,7 +22,9 @@ Shell class itself, but a lot also happens in ShellManager.
 import cStringIO
 import eventlet
 import desktop.lib.i18n
+from hadoop.cluster import all_mrclusters, get_all_hdfs
 import pty
+import pwd
 import shell.conf
 import shell.constants as constants
 import shell.utils as utils
@@ -31,7 +33,9 @@ from eventlet.green import select
 import signal
 import simplejson
 import subprocess
+import tempfile
 from eventlet.green import time
+import sys
 
 import logging
 LOG = logging.getLogger(__name__)
@@ -44,7 +48,7 @@ class Shell(object):
   """
   A class to encapsulate I/O with a shell subprocess.
   """
-  def __init__(self, shell_command, shell_id):
+  def __init__(self, shell_command, shell_id, username, delegation_token_dir):
     subprocess_env = {}
     env = desktop.lib.i18n.make_utf8_env()
     for item in constants.PRESERVED_ENVIRONMENT_VARIABLES:
@@ -53,9 +57,19 @@ class Shell(object):
         subprocess_env[item] = value
 
     parent, child = pty.openpty()
-    
+
+    user_info = pwd.getpwnam(username)
+    path_to_setuid = "%s/apps/shell/src/shell/setuid" % (os.getcwd(),)
+    subprocess_env[constants.HOME] = user_info.pw_dir
+    command_to_use = [path_to_setuid, '%d' % (user_info.pw_uid,), '%d' % (user_info.pw_gid,)]
+    command_to_use.extend(shell_command)
+
+    delegation_token_files = self._get_delegation_tokens(username, delegation_token_dir)
+    if delegation_token_files:
+      subprocess_env[constants.HADOOP_TOKEN_FILE_LOCATION] = ','.join([token_file.name for token_file in delegation_token_files])
+
     try:
-      p = subprocess.Popen(shell_command, stdin=child, stdout=child, stderr=child,
+      p = subprocess.Popen(command_to_use, stdin=child, stdout=child, stderr=child,
                                                                  env=subprocess_env, close_fds=True)
     except (OSError, ValueError):
       os.close(parent)
@@ -71,6 +85,7 @@ class Shell(object):
     self.pid = p.pid
     self._write_buffer = cStringIO.StringIO()
     self._read_buffer = cStringIO.StringIO()
+    self._delegation_token_files = delegation_token_files
 
     # State that's accessed by other classes.
     self.shell_id = shell_id
@@ -80,6 +95,27 @@ class Shell(object):
     self.last_output_sent = False
     self.remove_at_next_iteration = False
     self.destroyed = False
+
+  def _get_delegation_tokens(self, username, delegation_token_dir):
+    delegation_token_files = []
+    all_clusters = []
+    all_clusters += all_mrclusters().values()
+    all_clusters += get_all_hdfs().values()
+
+    LOG.info("all_clusters: %s" % (repr(all_clusters),))
+
+    for cluster in all_clusters:
+      if cluster.security_enabled:
+        current_user = cluster.user
+        cluster.setuser(username)
+        token = cluster.get_delegation_token()
+        token_file = tempfile.NamedTemporaryFile(dir=delegation_token_dir)
+        token_file.write(token.delegationTokenBytes)
+        token_file.flush()
+        delegation_token_files.append(token_file)
+        cluster.setuser(current_user)
+
+    return delegation_token_files
 
   def mark_for_cleanup(self):
     self.remove_at_next_iteration = True
@@ -103,12 +139,12 @@ class Shell(object):
     next_output = self._read_buffer.read()
     if not next_output:
       return None
-    more_available = len(next_output) >= constants.OS_READ_AMOUNT
+    more_available = len(next_output) >= shell.conf.SHELL_OS_READ_AMOUNT.get()
     return (next_output, more_available, self._output_buffer_length)
 
   def process_command(self, command):
     LOG.debug("Command received for pid %d : '%s'" % (self.pid, command,))
-    if len(self._write_buffer.getvalue()) >= constants.WRITE_BUFFER_LIMIT:
+    if len(self._write_buffer.getvalue()) >= shell.conf.SHELL_WRITE_BUFFER_LIMIT.get():
       LOG.debug("Write buffer too full, dropping command")
       return { constants.BUFFER_EXCEEDED : True }
     else:
@@ -123,7 +159,7 @@ class Shell(object):
     when the child becomes readable to send commands to the child subprocess.
     """
     self._write_buffer.seek(len(self._write_buffer.getvalue()))
-    self._write_buffer.write("%s\n" % (command,))
+    self._write_buffer.write("%s" % (command,))
     self._write_buffer.seek(0)
     self._commands.append(command)
     while len(self._commands) > 25:
@@ -195,14 +231,14 @@ class Shell(object):
 
   def read_child_output(self):
     """
-    Reads up to constants.OS_READ_AMOUNT bytes from the child subprocess's stdout. Returns a tuple
+    Reads up to conf.SHELL_OS_READ_AMOUNT bytes from the child subprocess's stdout. Returns a tuple
     of (output, more_available). The second parameter indicates whether more output might be
     obtained by another call to read_child_output.
     """
     ofd = self._fd
     result = None
     try:
-      next_output = os.read(ofd, constants.OS_READ_AMOUNT)
+      next_output = os.read(ofd, shell.conf.SHELL_OS_READ_AMOUNT.get())
       self._read_buffer.seek(self._output_buffer_length)
       self._read_buffer.write(next_output)
       length = len(next_output)
@@ -221,13 +257,16 @@ class Shell(object):
         LOG.error( format_str % (self.subprocess.pid, e))
         self.mark_for_cleanup()
     else:
-      more_available = length >= constants.OS_READ_AMOUNT
+      more_available = length >= shell.conf.SHELL_OS_READ_AMOUNT.get()
       result = (next_output, more_available, self._output_buffer_length)
     
     return result
   
   def destroy(self):
     try:
+      for delegation_token_file in self._delegation_token_files:
+        delegation_token_file.close()
+      self._delegation_token_files = None
       self._write_buffer.close()
       self._read_buffer.close()
 
@@ -238,7 +277,7 @@ class Shell(object):
         LOG.debug("Sending SIGKILL to process with PID %d" % (self.subprocess.pid,))
         os.kill(self.subprocess.pid, signal.SIGKILL)
         # We could try figure out which exit statuses are fine and which ones are errors.
-        # But that might be difficult to do since os.wait might block.
+        # But that would be difficult to do correctly since os.wait might block.
       except OSError:
         pass # This means the subprocess was already killed, which happens if the command was "quit"
     finally:
@@ -258,6 +297,10 @@ class ShellManager(object):
     self._greenlets_to_notify = {} # For each PID, maintain a set of greenlets who are also interested in the output from that process, but are not doing the select.
     self._shells_by_fds = {} # Map each file descriptor to the Shell instance whose output it represents.
     self._greenlet_interruptable = {} # For each greenlet, store if it can be safely interrupted.
+
+    self._delegation_token_dir = shell.conf.SHELL_DELEGATION_TOKEN_DIR.get()
+    if not os.path.exists(self._delegation_token_dir):
+      os.mkdir(self._delegation_token_dir)
     
     for item in shell.conf.SHELL_TYPES.keys():
       nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
@@ -266,10 +309,7 @@ class ShellManager(object):
       command = shell.conf.SHELL_TYPES[item].command.get().split()
       self._command_by_short_name[short_name] = command
     
-    self.shell_types_response = { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types }
-    # We will have to return this a lot so we violate MVC a little bit and store the JSON formatted
-    # string instead of the dictionary.
-    self.shell_types_response = simplejson.dumps(self.shell_types_response)
+    self.shell_types = shell_types
     eventlet.spawn_after(1, self._handle_periodic)
 
   @classmethod
@@ -277,6 +317,17 @@ class ShellManager(object):
     if not hasattr(cls, "_global_instance"):
       cls._global_instance = cls()
     return cls._global_instance
+
+  def available_shell_types(self, username):
+    try:
+      user_info = pwd.getpwnam(username)
+    except KeyError:
+      user_info = None
+    if not user_info:
+      return { constants.NO_SUCH_USER: True }
+    
+    shell_types_for_user = [item for item in self.shell_types if True] # TODO: Replace this "True" with a "shell x allowed for user y" function.
+    return { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types_for_user }
 
   def _interrupt_conditionally(self, green_let, message):
     if self._greenlet_interruptable.get(green_let):
@@ -299,10 +350,9 @@ class ShellManager(object):
 
   def _handle_periodic(self):
     """
-    Called every second. Kills shells which haven't been asked about in constants.SHELL_TIMEOUT
+    Called every second. Kills shells which haven't been asked about in conf.SHELL_TIMEOUT
     seconds (currently 600).
     """
-    LOG.debug("Entering _handle_periodic")
     try:
       keys_to_pop = []
       current_time = time.time()
@@ -313,7 +363,7 @@ class ShellManager(object):
           keys_to_pop.append(key)
         else:
           difftime = current_time - shell_instance.time_received
-          if difftime >= constants.SHELL_TIMEOUT:
+          if difftime >= shell.conf.SHELL_TIMEOUT.get():
             keys_to_pop.append(key)
       removed_pids = [self._shells.get(key).pid for key in keys_to_pop]
       for key in keys_to_pop:
@@ -321,7 +371,6 @@ class ShellManager(object):
     finally:
       eventlet.spawn_n(self._cleanup_greenlets_for_removed_pids, removed_pids)
       eventlet.spawn_after(1, self._handle_periodic)
-      LOG.debug("Leaving _handle_periodic")
 
 
   def _cleanup_shell(self, key):
@@ -341,6 +390,14 @@ class ShellManager(object):
     if not command:
       return { constants.SHELL_CREATE_FAILED : True }
 
+    try:
+      user_info = pwd.getpwnam(username)
+    except KeyError:
+      return { constants.NO_SUCH_USER : True }
+
+    if False: # TODO: replace with function call to see if current shell type allowed for current user
+      return { constants.SHELL_NOT_ALLOWED : True }
+
     if not username in self._meta:
       self._meta[username] = utils.UserMetadata(username)
 
@@ -348,7 +405,7 @@ class ShellManager(object):
     shell_id = user_metadata.get_next_id()
     try:
       LOG.debug("Trying to create a shell for user %s" % (username,))
-      shell_instance = Shell(command, shell_id)
+      shell_instance = Shell(command, shell_id, username, self._delegation_token_dir)
     except (OSError, ValueError), exc:
       LOG.error("Could not create shell : %s" % (exc,))
       return { constants.SHELL_CREATE_FAILED : True }
@@ -391,6 +448,7 @@ class ShellManager(object):
     if not shell_instance:
       return { constants.NO_SHELL_EXISTS : True }
     shell_instance.time_received = time.time()
+    command += "\n" # TODO: Tab completion
     return shell_instance.process_command(command)
 
   def _interrupt_with_output(self, readable):
@@ -527,4 +585,3 @@ class ShellManager(object):
     if greenlet_for_hid:
       eventlet.spawn_n(self._interrupt_conditionally, greenlet_for_hid, new_shells_interrupt) 
     return { constants.SUCCESS : True }
-  

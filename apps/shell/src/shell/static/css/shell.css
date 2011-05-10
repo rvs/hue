@@ -26,14 +26,6 @@
 	left: 3px;
 }
 
-.shell .Button {
-	position: absolute;
-	top: 40px;
-	left: 65px;
-	cursor: pointer;
-	padding: 7px;
-}
-
 .shell .Button .plus_button{
 	background: url("/static/art/icons/add.png");
 	height: 16px;
@@ -42,26 +34,17 @@
 	margin: 0px 5px 0px 0px;
 }
 
-.shell td.Button{
-	position:relative;
-	left: 0px;
-	top:0px;
-	margin:10px;
-	font-size:1.25em;
-	padding:10px;
+.shell  div.toolbar .Button {
+	position: absolute;
+	top: 40px;
+	left: 65px;
+	padding: 7px;
+	margin: 0px 5px 0px 0px;
 }
 
-.shell table{
-	background-color:#ffffff;
-	margin-left:auto;
-	margin-right:auto;
-  -moz-user-select: none;
-  -webkit-user-select: none;
-}
-
-.shell .fixed_width_font{
-    font-family: monospace;
-    font-size: 14px;
+.shell .Button {
+	padding: 10px;
+	margin: 10px;
 }
 
 .shell textarea{
@@ -73,4 +56,21 @@
     resize:none;
 }
 
+.shell li .Button {
+    display:block;
+    width: 100%;
+    font-size:1.25em;
+    margin-left:0px;
+}
 
+.shell span, .shell textarea{
+    font-family: monospace;
+    font-size: 14px;    
+}
+
+.shell .shell_container div{
+    width: 50%;
+    margin-left:25%;
+    background-color:#ffffff;
+    padding: 2px 10px;
+}

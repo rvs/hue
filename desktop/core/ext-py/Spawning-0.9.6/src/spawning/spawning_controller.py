@@ -20,8 +20,6 @@
 # FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-from __future__ import with_statement
-
 import eventlet
 
 import commands
@@ -60,7 +58,6 @@ DEFAULTS = {
     'dev': True,
     'host': '',
     'port': 8080,
-    'deadman_timeout': 10,
     'max_memory': None,
 }
 
@@ -222,8 +219,11 @@ class Controller(object):
                 time.asctime()))
 
         if self.config.get('pidfile'):
-            with open(self.config.get('pidfile'), 'w') as fd:
+            fd = open(self.config.get('pidfile'), 'w')
+            try:
                 fd.write('%s\n' % self.controller_pid)
+            finally:
+                fd.close()
 
         spawning.setproctitle("spawn: controller " + self.args.get('argv_str', ''))
 
@@ -330,11 +330,6 @@ def main():
         type='str', dest='reload',
         help='If --reload=dev is passed, reload any time '
         'a loaded module or configuration file changes.')
-    parser.add_option("--deadman", "--deadman_timeout",
-        type='int', dest='deadman_timeout', default=DEFAULTS['deadman_timeout'],
-        help='When killing an old i/o process because the code has changed, don\'t wait '
-        'any longer than the deadman timeout value for the process to gracefully exit. '
-        'If all requests have not completed by the deadman timeout, the process will be mercilessly killed.')
     parser.add_option('-l', '--access-log-file', dest='access_log_file', default=None,
         help='The file to log access log lines to. If not given, log to stdout. Pass /dev/null to discard logs.')
     parser.add_option('-c', '--coverage', dest='coverage', action='store_true',
@@ -496,7 +491,6 @@ def main():
         'threadpool_workers': options.threads,
         'watch': options.watch,
         'reload': options.reload,
-        'deadman_timeout': options.deadman_timeout,
         'access_log_file': options.access_log_file,
         'pidfile': options.pidfile,
         'coverage': options.coverage,

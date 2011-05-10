@@ -13,15 +13,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-ifeq ($(ROOT),)
-  $(error "Error: Expect the environment variable $$ROOT to point to the Desktop installation")
-endif
 
-include $(ROOT)/Makefile.sdk
-
-compile: setuid
+# TODO: Make the output binary not be in this directory?
 
 .PHONY: setuid
 setuid:
-	make -C src/shell setuid
+	gcc -Werror -Wall setuid.c -o setuid && chmod 4755 setuid
 

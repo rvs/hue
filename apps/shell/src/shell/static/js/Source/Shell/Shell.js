@@ -53,6 +53,10 @@ ART.Sheet.define('window.art.browser.shell', {
     {
       expr: /\n/g,
       replacement: "<br>"
+    },
+    {
+      expr: /\x07/g,
+      replacement: ""
     }
   ];
 
@@ -77,7 +81,7 @@ var Shell = new Class({
 
   initialize: function(path, options){
     this.parent(path || '/shell/', options);
-    if(options && options.shellId){
+    if(this.options && this.options.shellId){
       this.shellId = options.shellId;
     }
     this.addEvent("load", this.startShell.bind(this));
@@ -85,7 +89,7 @@ var Shell = new Class({
 
   startShell: function(view){
     // Set up some state shared between "fresh" and "restored" shells.
-    this.previousCommands = new Array();
+    this.previousCommands = [];
     this.currentCommandIndex = -1;
     
     this.jframe.markForCleanup(this.cleanUp.bind(this));
@@ -93,12 +97,9 @@ var Shell = new Class({
 
     this.background = $(this).getElement('.jframe_contents');
     this.background.setStyle("background-color", "#ffffff");
-    this.container = $(this).getElement('.jframe_padded');
-    this.output = new Element('span', {
-      'class':'fixed_width_font'
-    });
+    this.container = $(this).getElement('.shell_container');
+    this.output = new Element('span');
     this.input = new Element('textarea', {
-      'class':'fixed_width_font',
       events: {
         keydown: this.handleKeyDown.bind(this),
         keyup: this.resizeInput.bind(this)
@@ -107,15 +108,7 @@ var Shell = new Class({
     });
 
     this.inputExpander = new Fx.Morph(this.input, { duration:0, transition: Fx.Transitions.linear });
-    this.button = new Element('input', {
-      type:'button',
-      value:'Send command',
-      'class':'ccs-hidden',
-      events: {
-        click: this.sendCommand.bind(this)
-      }
-    });
-
+    
     this.jframe.scroller.setOptions({
       duration: 200
     });
@@ -156,7 +149,7 @@ var Shell = new Class({
       this.nextOffset = json.nextOffset;
       this.previousCommands = json.commands;
       this.currentCommandIndex = this.previousCommands.length - 1;
-      this.setupTerminalFromPreviousOutput(json.output);
+      this.setupTerminal(json.output);
     }else{
       this.restoreFailed();
     }
@@ -170,37 +163,23 @@ var Shell = new Class({
     this.setup(view);
   },
 
-  setupTerminalFromPreviousOutput: function(initVal){
+  setupTerminal: function(initVal){
     // Set up the DOM
-    this.container.adopt([this.output, this.input, this.button]);
-    this.appendToOutput(initVal);
+    this.container.adopt([this.output, this.input]);
 
-    // Scroll the jframe and focus the input
-    this.jframe.scroller.toBottom();
-    this.input.focus();
+    if(initVal){
+    	this.appendToOutput(initVal);
 
-    // If the user clicks anywhere in the jframe, focus the textarea.
-    this.background.addEvent("click", this.focusInput.bind(this));
-
-    // To mimic creation, let's set this.shellCreated to true.
-    this.shellCreated = true;
-
-    // Register the shell we have with CCS.Desktop, so we can be included in the output channel it has.
-    Hue.ShellPoller.listenForShell(this.shellId, this.nextOffset, this.outputReceived.bind(this));
-  },
-
-  setupTerminalForShellUsage: function(){
-    // Set up the DOM
-    this.container.adopt([this.output, this.input, this.button]);
-    
-    // If the user clicks anywhere in the jframe, focus the textarea.
-    this.background.addEvent("click", this.focusInput.bind(this));
-
-    this.shellCreated = true;
-    
+    	// Scroll the jframe and focus the input
+    	this.jframe.scroller.toBottom();
+    }
     this.focusInput();
 
-    // Register the shell we have with CCS.Desktop so we can be included in its output channel.
+    // If the user clicks anywhere in the jframe, focus the textarea.
+    this.background.addEvent("click", this.focusInput.bind(this));
+    this.shellCreated = true;
+
+    // Register the shell we have with Hue.ShellPoller, so we can be included in the output channel it has.
     Hue.ShellPoller.listenForShell(this.shellId, this.nextOffset, this.outputReceived.bind(this));
   },
   
@@ -225,66 +204,34 @@ var Shell = new Class({
     this.shellTypesReq = null;
     if(json.success){
       this.buildSelectionMenu(json.shellTypes);
-    }else{
+    }else if(!json.notRunningSpawning){
       this.errorMessage('Error', 'Shell types request returned invalid value: '+text);
     }
   },
 
   shellTypesReqFailed: function(){
     this.shellTypesReq = null;
-    this.errorMessage('Error',"Could not retrieve available shell types. Is the Tornado server running?");
+    this.errorMessage('Error',"Could not retrieve available shell types. Is the Spawning server running?");
   },
 
-	buildSelectionMenu: function(shellTypes){
-		this.background.setStyle("background-color", "#aaaaaa");
-		
-    var table = new Element("table");		
-		this.container.empty();		
-		this.container.grab(table);
-		
-    var maxWidth = 0;
-		var tds = new Array();
-		for(var i = 0; i < shellTypes.length; i++){
-			var tr = new Element("tr");
-			var td = new Element("td", {
-				'class':'round Button',
-				html: shellTypes[i].niceName.escapeHTML()
-			});
-			tr.grab(td);
-
-      // On mouse down, store the currently selected row
-			tr.addEvent('mousedown', function(tr){
-        this.currentlySelectedRow = tr;
-        return false;
-      }.bind(this, tr));
-      
-      tr.addEvent('mouseup', function(tr, keyName){
-        if(this.currentlySelectedRow === tr){
-          this.handleShellSelection(keyName);
-        }
-        this.currentlySelectedRow = null;
-      }.bind(this, [tr, shellTypes[i].keyName]));
-      
-      table.grab(tr);
-			
-      var tdWidth = parseInt(td.getStyle("width")) + parseInt(td.getStyle("padding-left")) + parseInt(td.getStyle("padding-right"));
-			maxWidth = tdWidth > maxWidth ? tdWidth : maxWidth;
-			tds.push(td);
-		}
-		for(var i = 0; i < tds.length; i++){
-			tds[i].setStyle("width", maxWidth);
-		}
-
-    this.background.addEvent('mouseup', function(){
-      this.currentlySelectedRow = null;
-    }.bind(this));
-
-    if(Browser.Engine.trident){
-      table.addEvent('selectstart', function(){
-        return false;
-      });
-    }
-	},
+buildSelectionMenu: function(shellTypes){
+    this.background.setStyle("background-color", "#cccccc");
+	this.container.empty();
+	var menuDiv = new Element("div");
+	var menu = new Element("ul");
+	for(var i = 0; i <shellTypes.length; i++){
+		var item = new Element("li");
+		var link = new Element("a", {
+			"class": "round Button",
+			html: shellTypes[i].niceName.escapeHTML()	
+		});
+		item.grab(link);
+		menu.grab(item);
+		item.addEvent('click', this.handleShellSelection.bind(this, shellTypes[i].keyName));
+	}
+	menuDiv.grab(menu);
+	this.container.grab(menuDiv);
+  },
 
 
   handleShellSelection: function(keyName){
@@ -334,7 +281,7 @@ var Shell = new Class({
       this.nextOffset = 0;
       this.jframe.collectElement(this.container);
       this.container.empty();
-      this.setupTerminalForShellUsage();
+      this.setupTerminal();
     }
   },
   
@@ -399,18 +346,23 @@ var Shell = new Class({
   recordCommand: function(){
     var enteredCommand = this.input.get("value");
     if(enteredCommand){
-      this.previousCommands.push(enteredCommand);
-      this.currentCommandIndex = this.previousCommands.length - 1;
+      if(this.previousCommands[this.previousCommands.length - 1] != enteredCommand){
+        this.previousCommands.push(enteredCommand);
+        this.currentCommandIndex = this.previousCommands.length - 1;
+      }
     }
   },
 
   sendCommand: function(){
     var enteredCommand = this.input.get("value");
-    var lineToSend = encodeURIComponent(enteredCommand);
     var shellId = this.shellId;
     this.disableInput();
+    var dataToSend = {
+      lineToSend : enteredCommand,
+      shellId : shellId
+    };
     this.commandReq.send({
-      data: 'lineToSend='+lineToSend+'&shellId='+shellId
+      data: dataToSend
     });
   },
 
@@ -449,7 +401,6 @@ var Shell = new Class({
   },
 
   enableInput:function(){
-    this.button.set('disabled', false);
     this.input.set({
       disabled: false,
       styles: {
@@ -460,7 +411,6 @@ var Shell = new Class({
   },
 
   disableInput:function(){
-    this.button.set('disabled', true);
     this.input.set({
       disabled: true,
       styles: {

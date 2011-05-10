@@ -34,3 +34,28 @@ SHELL_BUFFER_AMOUNT = Config(
   help="Configure the number of output characters buffered for each shell",
   default=524288,
   type=int)
+
+SHELL_TIMEOUT = Config(
+  key="shell_timeout",
+  help="Number of seconds to keep shells open for users",
+  default=600,
+  type=int)
+
+SHELL_WRITE_BUFFER_LIMIT = Config(
+  key="shell_write_buffer_limit",
+  help="Number of bytes of commands to buffer for users",
+  default=10000,
+  type=int)
+
+SHELL_OS_READ_AMOUNT = Config(
+  key="shell_os_read_amount",
+  help="Number of bytes to read from child subprocess at a time",
+  default=40960,
+  type=int)
+
+SHELL_DELEGATION_TOKEN_DIR = Config(
+  key="shell_delegation_token_dir",
+  help="The directory to use to store the temporary delegation tokens used by shell subprocesses",
+  default="/tmp/hue_shell_delegation_tokens",
+  type=str)
+

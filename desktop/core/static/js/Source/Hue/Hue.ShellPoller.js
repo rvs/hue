@@ -59,7 +59,7 @@ Hue.ShellPoller = {
       onFailure: this.addToOutputFailed.bind(this)
     });
     this.numAdditionalReqsSent = 0;
-    this.additionalReqs = new Array();
+    this.additionalReqs = [];
     this.addToOutputReqOpen = false;
     this.requestOpen = false;
     this.initialized = true;
@@ -100,18 +100,18 @@ Hue.ShellPoller = {
   
   // Convert the information stored in this.dispatchInfo into the form that the backend speaks.
   serializeShellData: function(){
-      var serializedShells = new Array();
+      var serializedShells = {};
       var numShells = 0;
       for(var shellId in this.dispatchInfo){
           var shellInfo = this.dispatchInfo[shellId];
           if(shellInfo){
               numShells++;
-              serializedShells.push("shellId"+numShells+"="+shellId);
-              serializedShells.push("offset"+numShells+"="+shellInfo.offset);
+              serializedShells['shellId'+numShells] = shellId;
+              serializedShells['offset'+numShells] = shellInfo.offset;
           }
       }
-      serializedShells.push("numPairs="+numShells);
-      return serializedShells.join("&");
+      serializedShells["numPairs"] = numShells;
+      return serializedShells;
   },
   
   openOutputChannel: function(){
@@ -135,18 +135,31 @@ Hue.ShellPoller = {
           closeOutputChannel = false; // If it's just a "keep-alive", we should reissue.
       }
       
+      // The object we got back has a dictionary for every shell ID. We loop through the keys in the object.
       for(var shellId in json){
           var shellInfo = this.dispatchInfo[shellId];
+          // For each key, see if we have any callbacks that are interested in that key. If not, then it
+          // either isn't a shell ID (so it's something like "periodicResponse") or it's a shell ID that 
+          // we no longer care about. That can occur when the user closes the instance of the shell app that
+          // we made this output request for.
           if(shellInfo){
+              // Let's pull out the data for this shell.
               var result = json[shellId];
+              // If it's alive, or it has exited, we might have to reissue an output request. We might reissue
+              // if it's exited because there might be more output available.
               if(result.alive || result.exited){
+                  //Let's update how far into the output stream we are.
                   shellInfo.offset = result.nextOffset;
+                  // If it's not alive and no more output is available, then we stop listening for this shell.
                   if(!(result.alive || result.moreOutputAvailable)){
                       this.stopShellListener(shellId);
                   }
               }else{
+                  //If it's neither alive nor exited, then we're in some error state, so we definitely stop
+                  //listening for this shell
                   this.stopShellListener(shellId);
               }
+              // Since there was output this one time, let's call the callback with the result for this shell.
               shellInfo.callback(result);
           }
           
@@ -184,13 +197,13 @@ Hue.ShellPoller = {
   serializeAdditionalReqs: function(){
       // Convert the additional things we need to register into our output channel into the
       // same format as used for output requests.
-      var serializedData = new Array();
+      var serializedData = {}
       for(var i = 0; i < this.additionalReqs.length; i++){
-          serializedData.push("shellId"+(i+1)+"="+this.additionalReqs[i].shellId+
-                              "&offset"+(i+1)+"="+this.additionalReqs[i].offset);
+          serializedData["shellId" + (i+1)] = this.additionalReqs[i].shellId;
+          serializedData["offset" + (i+1)] = this.additionalReqs[i].offset;
       }
-      serializedData.push("numPairs="+this.additionalReqs.length);
-      return serializedData.join("&");
+      serializedData["numPairs"] = this.additionalReqs.length;
+      return serializedData;
   },
   
   sendAdditionalReq: function(){

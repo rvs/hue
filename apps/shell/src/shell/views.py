@@ -22,15 +22,29 @@ import shell.conf
 import shell.constants as constants
 import shell.utils as utils
 from shell.shellmanager import ShellManager
+import sys
+
+def _running_with_spawning(request):
+  return 'eventlet.input' in request.META
 
 def index(request):
+  if not _running_with_spawning(request):
+    return render('not_running_spawning.mako', request, {})
   return render('index.mako', request, {})
 
 def shell_types(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
-  return HttpResponse(shell_manager.shell_types_response, mimetype="application/json")
+  username = request.user.username
+  result = shell_manager.available_shell_types(username)
+  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def create(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   key_name = request.POST[constants.KEY_NAME]
@@ -38,6 +52,9 @@ def create(request):
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def kill_shell(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   shell_id = request.POST[constants.SHELL_ID]
@@ -45,6 +62,9 @@ def kill_shell(request):
   return HttpResponse(result)
 
 def restore_shell(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   shell_id = request.POST[constants.SHELL_ID]
@@ -52,14 +72,20 @@ def restore_shell(request):
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def process_command(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   shell_id = request.POST[constants.SHELL_ID]
-  command = request.POST[constants.COMMAND]
+  command = request.POST.get(constants.COMMAND, "")
   result = shell_manager.process_command(username, shell_id, command)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def retrieve_output(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
@@ -68,9 +94,13 @@ def retrieve_output(request):
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
 def add_to_output(request):
+  if not _running_with_spawning(request):
+    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+    return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
   shell_pairs = utils.parse_shell_pairs(request)
   result = shell_manager.add_to_output(username, hue_instance_id, shell_pairs)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
+

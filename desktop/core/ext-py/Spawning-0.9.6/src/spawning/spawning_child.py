@@ -184,11 +184,6 @@ def read_pipe_and_die(the_pipe, server_coro):
     if not dying:
         eventlet.greenthread.kill(server_coro, KeyboardInterrupt)
 
-
-def deadman_timeout(signum, frame):
-    print "(%s) *** Child exiting" % (os.getpid(),)
-    os.kill(os.getpid(), signal.SIGKILL)
-
 def tpool_wsgi(app):
     from eventlet import tpool
     def tpooled_application(e, s):
@@ -267,28 +262,13 @@ def serve_from_child(sock, config, controller_pid):
     except ExitChild:
         pass  # parent killed us, it already knows we're dying
 
-    ## Set a deadman timer to violently kill the process if it doesn't die after
-    ## some long timeout.
-    signal.signal(signal.SIGALRM, deadman_timeout)
-    signal.alarm(config['deadman_timeout'])
-
-    ## Once we get here, we just need to handle outstanding sockets, not
-    ## accept any new sockets, so we should close the server socket.
+    ## Once we get here, we should not accept any new sockets, so we should close the server socket.
     sock.close()
     
     server = server_event.wait()
 
-    last_outstanding = None
-    while server.outstanding_requests:
-        if last_outstanding != server.outstanding_requests:
-            print "(%s) %s requests remaining, waiting... (timeout after %s)" % (
-                os.getpid(), server.outstanding_requests, config['deadman_timeout'])
-        last_outstanding = server.outstanding_requests
-        eventlet.sleep(0.1)
-
-    print "(%s) *** Child exiting: all requests completed at %s" % (
-        os.getpid(), time.asctime())
-
+    print "(%s) *** Child exiting" % (os.getpid(),)
+    os.kill(os.getpid(), signal.SIGKILL)
 
 def child_sighup(*args, **kwargs):
     exit(0)
