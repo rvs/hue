@@ -1,6 +1,6 @@
 <%namespace name="shared" file="shared_components.mako" />
 
-${shared.header("Hue Shell")}
+${shared.header("Hue Shell", True, shells)}
 
 ## use double hashes for a mako template comment
 
@@ -9,5 +9,18 @@ ${shared.header("Hue Shell")}
 
 ## the class 'jframe_padded' will give the contents of your window a standard padding
 <div id="index" class="view jframe_padded shell_container">
+  % if shell_id:
+    <span class="shell_id hidden">${shell_id}</span>
+  % else:
+    <div>
+      <ul>
+        % for item in shells:
+          <li>
+          <a class="round Button menu_button">${item["niceName"]}</a><span class="hidden">${item["keyName"]}</span>
+          </li>
+        % endfor
+      </ul>
+    </div>
+  % endif
 </div>
 ${shared.footer()}

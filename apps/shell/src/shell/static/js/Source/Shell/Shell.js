@@ -88,6 +88,11 @@ var Shell = new Class({
   },
 
   startShell: function(view){
+    var shellIdContainer = $(this).getElement('.shell_id');
+    if(shellIdContainer){
+      this.shellId = shellIdContainer.get("text");
+    } 
+    
     // Set up some state shared between "fresh" and "restored" shells.
     this.previousCommands = [];
     this.currentCommandIndex = -1;
@@ -118,10 +123,9 @@ var Shell = new Class({
       method: 'post',
       url: '/shell/process_command',
       onSuccess: this.commandProcessed.bind(this)
-    });
+    }); 
 
-    // Now let's kick off the appropriate thing, either a new shell or a restore.
-    if(this.shellId){
+   if(this.shellId){
       this.startRestore(view);
     }else{
       this.setup(view);
@@ -191,48 +195,12 @@ var Shell = new Class({
 
   setup: function(view) {
     this.shellCreated = false;
-    this.shellTypesReq = new Request.JSON({
-      method: 'get',
-      url: '/shell/shell_types',
-      onSuccess: this.shellTypesReqCompleted.bind(this),
-      onFailure: this.shellTypesReqFailed.bind(this)
-    });
-    this.shellTypesReq.send();
+    var mainMenuButtons = $(this).getElements("a.menu_button");
+    mainMenuButtons.each(function(button){
+      var keyName = button.nextSibling.get("text");
+      button.addEvent('click', this.handleShellSelection.bind(this, keyName)); 
+    }.bind(this));
   },
-
-  shellTypesReqCompleted: function(json, text){
-    this.shellTypesReq = null;
-    if(json.success){
-      this.buildSelectionMenu(json.shellTypes);
-    }else if(!json.notRunningSpawning){
-      this.errorMessage('Error', 'Shell types request returned invalid value: '+text);
-    }
-  },
-
-  shellTypesReqFailed: function(){
-    this.shellTypesReq = null;
-    this.errorMessage('Error',"Could not retrieve available shell types. Is the Spawning server running?");
-  },
-
-buildSelectionMenu: function(shellTypes){
-    this.background.setStyle("background-color", "#cccccc");
-	this.container.empty();
-	var menuDiv = new Element("div");
-	var menu = new Element("ul");
-	for(var i = 0; i <shellTypes.length; i++){
-		var item = new Element("li");
-		var link = new Element("a", {
-			"class": "round Button",
-			html: shellTypes[i].niceName.escapeHTML()	
-		});
-		item.grab(link);
-		menu.grab(item);
-		item.addEvent('click', this.handleShellSelection.bind(this, shellTypes[i].keyName));
-	}
-	menuDiv.grab(menu);
-	this.container.grab(menuDiv);
-  },
-
 
   handleShellSelection: function(keyName){
     this.registerReq = new Request.JSON({
@@ -437,10 +405,6 @@ buildSelectionMenu: function(shellTypes){
   },
 
   cleanUp:function(){
-    //These might not exist any more if they completed already or we quit before they were created.
-    if(this.shellTypesReq){
-      this.shellTypesReq.cancel();
-    }
     if(this.registerReq){
       this.registerReq.cancel();
     }

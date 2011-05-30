@@ -30,7 +30,11 @@ def _running_with_spawning(request):
 def index(request):
   if not _running_with_spawning(request):
     return render('not_running_spawning.mako', request, {})
-  return render('index.mako', request, {})
+  shell_manager = ShellManager.global_instance()
+  username = request.user.username
+  result = shell_manager.available_shell_types(username)
+  shells = result.get(constants.SHELL_TYPES, [])
+  return render('index.mako', request, {'shells':shells})
 
 def shell_types(request):
   if not _running_with_spawning(request):
@@ -47,9 +51,18 @@ def create(request):
     return HttpResponse(result, mimetype="application/json")
   shell_manager = ShellManager.global_instance()
   username = request.user.username
-  key_name = request.POST[constants.KEY_NAME]
+  if request.method == "POST":
+    key_name = request.POST[constants.KEY_NAME]
+  else:
+    key_name = request.GET[constants.KEY_NAME]
   result = shell_manager.try_create(username, key_name)
-  return HttpResponse(simplejson.dumps(result), mimetype="application/json")
+  if request.method == "POST":
+    return HttpResponse(simplejson.dumps(result), mimetype="application/json")
+  else:
+    shell_types = shell_manager.available_shell_types(username).get(constants.SHELL_TYPES, [])
+    dict_for_template = {'shells': shell_types}
+    dict_for_template['shell_id'] = result.get(constants.SHELL_ID)
+    return render('index.mako', request, dict_for_template)
 
 def kill_shell(request):
   if not _running_with_spawning(request):

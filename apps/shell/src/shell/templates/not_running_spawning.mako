@@ -1,6 +1,6 @@
 <%namespace name="shared" file="shared_components.mako" />
 
-${shared.header("Hue Shell")}
+${shared.header("Hue Shell", False)}
 
 ## use double hashes for a mako template comment
 
