@@ -59,7 +59,7 @@ class Shell(object):
     parent, child = pty.openpty()
 
     user_info = pwd.getpwnam(username)
-    path_to_setuid = "%s/apps/shell/src/shell/setuid" % (os.getcwd(),)
+    path_to_setuid = "%s/setuid" % (os.path.dirname(__file__),)
     subprocess_env[constants.HOME] = user_info.pw_dir
     command_to_use = [path_to_setuid, '%d' % (user_info.pw_uid,), '%d' % (user_info.pw_gid,)]
     command_to_use.extend(shell_command)

@@ -19,3 +19,4 @@ REQUIRES_HADOOP = False
 DEPENDER_PACKAGE_YMLS = [
     "src/shell/static/js/package.yml",
 ]
+NICE_NAME = "Hue Shell"
