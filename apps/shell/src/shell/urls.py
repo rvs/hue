@@ -19,7 +19,6 @@ from django.conf.urls.defaults import patterns, url
 
 urlpatterns = patterns('shell',
   url(r'^$', 'views.index'),
-  url(r'^shell_types/?$', 'views.shell_types'),
   url(r'^process_command/?$', 'views.process_command'),
   url(r'^restore_shell/?$', 'views.restore_shell'),
   url(r'^kill_shell/?$', 'views.kill_shell'),

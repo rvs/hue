@@ -20,3 +20,8 @@ DEPENDER_PACKAGE_YMLS = [
     "src/shell/static/js/package.yml",
 ]
 NICE_NAME = "Hue Shell"
+PERMISSION_ACTIONS = (
+  ("launch_pig", "Launch the Pig Shell"),
+  ("launch_flume", "Launch the Flume Shell"),
+  ("launch_hbase", "Launch the HBase Shell"),
+)

@@ -318,7 +318,8 @@ class ShellManager(object):
       cls._global_instance = cls()
     return cls._global_instance
 
-  def available_shell_types(self, username):
+  def available_shell_types(self, user):
+    username = user.username
     try:
       user_info = pwd.getpwnam(username)
     except KeyError:
@@ -326,7 +327,7 @@ class ShellManager(object):
     if not user_info:
       return { constants.NO_SUCH_USER: True }
     
-    shell_types_for_user = [item for item in self.shell_types if True] # TODO: Replace this "True" with a "shell x allowed for user y" function.
+    shell_types_for_user = [item for item in self.shell_types if user.has_desktop_permission('launch_%s' % (item[constants.KEY_NAME],),'shell')]
     return { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types_for_user }
 
   def _interrupt_conditionally(self, green_let, message):
@@ -381,7 +382,7 @@ class ShellManager(object):
     self._meta[username].decrement_count()
     self._shells_by_fds.pop(shell_instance._fd)
 
-  def try_create(self, username, key_name):
+  def try_create(self, user, key_name):
     """
     Attemps to create a new shell subprocess for the given user. Writes the appropriate failure or
     success response to the client.
@@ -390,12 +391,13 @@ class ShellManager(object):
     if not command:
       return { constants.SHELL_CREATE_FAILED : True }
 
+    username = user.username
     try:
       user_info = pwd.getpwnam(username)
     except KeyError:
       return { constants.NO_SUCH_USER : True }
 
-    if False: # TODO: replace with function call to see if current shell type allowed for current user
+    if not user.has_desktop_permission('launch_%s' % (key_name,), 'shell'):
       return { constants.SHELL_NOT_ALLOWED : True }
 
     if not username in self._meta:
