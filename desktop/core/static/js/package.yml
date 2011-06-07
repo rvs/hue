@@ -17,7 +17,6 @@ sources: [
   Source/Hue/Hue.Login.js,
   Source/Hue/Hue.Profiler.js,
   Source/Hue/Hue.Request.js,
-  Source/Hue/Hue.ShellPoller.js,
   Source/Hue/Hue.SolidWindow.js,
   Source/Hue/Hue.User.js,
   Source/Hue/HueChart.js,
