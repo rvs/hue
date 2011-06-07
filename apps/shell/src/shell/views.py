@@ -99,7 +99,10 @@ def retrieve_output(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
-  shell_pairs = utils.parse_shell_pairs(request)
+  try:
+    shell_pairs = utils.parse_shell_pairs(request)
+  except ValueError:
+    shell_pairs = []
   result = shell_manager.retrieve_output(username, hue_instance_id, shell_pairs)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 
@@ -110,7 +113,10 @@ def add_to_output(request):
   shell_manager = ShellManager.global_instance()
   username = request.user.username
   hue_instance_id = request.META[constants.HUE_INSTANCE_ID]
-  shell_pairs = utils.parse_shell_pairs(request)
+  try:
+    shell_pairs = utils.parse_shell_pairs(request)
+  except ValueError:
+    shell_pairs = []
   result = shell_manager.add_to_output(username, hue_instance_id, shell_pairs)
   return HttpResponse(simplejson.dumps(result), mimetype="application/json")
 

@@ -28,10 +28,7 @@ def parse_shell_pairs(request):
   Parses out and returns a list of (shell_id, offset) tuples from a descendant of RequestHandler.
   """
   shell_pairs = []
-  try:
-    num_pairs = int(request.POST.get(constants.NUM_PAIRS, ""))
-  except ValueError:
-    return shell_pairs
+  num_pairs = int(request.POST.get(constants.NUM_PAIRS, ""))
 
   for i in xrange(1, num_pairs+1):
     try:
