@@ -41,7 +41,7 @@ def parse_shell_pairs(request):
       LOG.debug('Bad HTTP parameter : "%s%d" has value "%s"' % (constants.OFFSET, i, 
                                       request.POST.get("%s%d" % (constants.SHELL_ID, i), "-1")))
     else:
-      shell_pairs.append((shell_id_i, offset_i))
+      shell_pairs.append((shell_id_i, offset_i, ))
   return shell_pairs
 
 class UserMetadata(object):

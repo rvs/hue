@@ -14,9 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Make the output binary not be in this directory?
+CFLAGS=-Werror -Wall
 
 .PHONY: setuid
-setuid:
-	gcc -Werror -Wall setuid.c -o setuid && chmod 4755 setuid
+setuid: setuid.c
+	gcc ${CFLAGS} setuid.c -o setuid 
+	chmod 4755 setuid
 

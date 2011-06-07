@@ -23,51 +23,124 @@
 #include <string.h>
 #include <unistd.h>
 
-int main(int argc, char **argv) {
-  if(argc >= 4){
-    int uid = strtol(argv[1], (char **)NULL, 10);
-    int gid = strtol(argv[2], (char **)NULL, 10);
-    if(!uid){
-      fprintf(stderr, "Error: Invalid value for UID: \"%s\"\n", argv[1]);
-      exit(-1);
-    }
-    if(!gid){
-      fprintf(stderr, "Error: Invalid value for GID: \"%s\"\n", argv[2]);
-      exit(-1);
-    }
- 
-    char *delegation_token_files = getenv("HADOOP_TOKEN_FILE_LOCATION");
-    if(delegation_token_files){
-      delegation_token_files = strdup(delegation_token_files);
-      if(delegation_token_files == NULL){
-        fprintf(stderr, "Error: strdup returned NULL, system out of memory. Exiting.\n");
-        exit(-1);
-      }
-      char *delegation_token_file = strtok(delegation_token_files, ",");
-      while(delegation_token_file != NULL){
-        chown(delegation_token_file, uid, gid);
-        delegation_token_file = strtok(NULL, ",");
-      }
-    }
+static int min_uid = 1000;
+static int min_gid = 1000;
+static int max_uid = 5000;
+static int max_gid = 5000;
 
-    gid_t group = gid;
-    setgroups(1, &group);
-    setregid(gid, gid);
-    setreuid(uid, uid);
-
-    int executable_index = 3;
-    const char *executable = argv[executable_index];
-    char **const param_list = calloc(argc - executable_index + 1, sizeof(char *));
-    int i;
-    for(i=0; i < argc - executable_index; i++){
-      param_list[i] = argv[executable_index + i];
-    }
-    int result = execvp(executable, param_list);
-    fprintf(stderr, "An execv error occurred. The given command for the executable was \"%s\". Is this on the path?.\n", executable);
-    fprintf(stderr, "The error code was: %d, errno was %d\n", result, errno);
-  }else{
-    fprintf(stderr, "Usage: setuid <desired user ID> <desired group ID> <executable> <arguments for executable>\n");
+int chown_delegation_token_files(char *delegation_token_files, int uid, int gid) {
+  char *modifiable_delegation_token_files = strdup(delegation_token_files);
+  if (modifiable_delegation_token_files == NULL) {
+    fprintf(stderr, "Error: strdup returned NULL, system out of memory.\n");
+    return -1;
   }
+
+  char *delegation_token_file = strtok(modifiable_delegation_token_files, ",");
+  while (delegation_token_file != NULL) {
+    errno = 0;
+    int chown_result = chown(delegation_token_file, uid, gid);
+    if (chown_result == -1) {
+      fprintf(stderr, "Could not change ownership of file \"%s\" to UID %d and GID %d\n", delegation_token_file, uid, gid);
+      fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
+      free(modifiable_delegation_token_files);
+      return -1;
+    }
+    delegation_token_file = strtok(NULL, ",");
+  }
+  free(modifiable_delegation_token_files);
+  return 0;
+}
+
+int set_gid_uid(int gid, int uid) {
+  gid_t group = gid;
+
+  errno = 0;
+  int result_of_step = setgroups(1, &group);
+  if (result_of_step != 0) {
+    fprintf(stderr, "Error: Could not set groups list to [%d]\n", gid);
+    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    return -1;
+  }
+
+  errno = 0;
+  result_of_step = setregid(gid, gid);
+  if (result_of_step != 0) {
+    fprintf(stderr, "Error: Could not set real and effective group ID to %d\n", gid);
+    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    return -1;
+  }
+
+  errno = 0;
+  result_of_step = setreuid(uid, uid);
+  if (result_of_step != 0) {
+    fprintf(stderr, "Error: Could not set real and effective user ID to %d\n", uid);
+    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    return -1;
+  }
+
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  
+  if (argc < 4){
+    fprintf(stderr, "Usage: setuid <desired user ID> <desired group ID> <executable> <arguments for executable>\n");
+    return -1;
+  }
+
+  errno = 0;
+  int uid = strtol(argv[1], (char **)NULL, 10);
+  if (errno != 0) {
+    fprintf(stderr, "Error: Invalid value for UID: \"%s\"\n", argv[1]);
+    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    return -1;
+  }
+
+  errno = 0;
+  int gid = strtol(argv[2], (char **)NULL, 10);
+  if (errno != 0) {
+    fprintf(stderr, "Error: Invalid value for GID: \"%s\"\n", argv[2]);
+    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    return -1;
+  }
+
+  if (uid < min_uid || uid > max_uid) {
+    fprintf(stderr, "Error: value %d for UID is not within permissible range [%d, %d]\n", uid, min_uid, max_uid);
+    return -1;
+  }
+
+  if (gid < min_gid || gid > max_gid) {
+    fprintf(stderr, "Error: value %d for GID is not within permissible range [%d, %d]\n", gid, min_gid, max_gid);
+    return -1;
+  }
+
+  char *delegation_token_files = getenv("HADOOP_TOKEN_FILE_LOCATION");
+  if (delegation_token_files != NULL) {
+    int chown_result = chown_delegation_token_files(delegation_token_files, uid, gid);
+    if (chown_result != 0) {
+      fprintf(stderr, "Error: Could not change ownership of delegation token files, exiting.\n");
+      return -1;
+    }
+  }
+
+  int set_gid_uid_result = set_gid_uid(gid, uid);
+  if (set_gid_uid_result != 0) {
+    fprintf(stderr, "Error: Could not correctly change to running as correct user, exiting.\n");
+    return -1;
+  }
+
+  int executable_index = 3;
+  const char *executable = argv[executable_index];
+  char **const param_list = (char **const) calloc(argc - executable_index + 1, sizeof(char *));
+  int i;
+  for (i = 0; i < argc - executable_index; i++) {
+    param_list[i] = argv[executable_index + i];
+  }
+
+  int result = execvp(executable, param_list);
+
+  fprintf(stderr, "An exec error occurred. The given command for the executable was \"%s\". Is this on the path?.\n", executable);
+  fprintf(stderr, "Exec returned %d with errno %d: %s\n", result, errno, strerror(errno));
   return 0;
 }
 

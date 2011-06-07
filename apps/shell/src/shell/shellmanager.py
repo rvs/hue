@@ -58,10 +58,16 @@ class Shell(object):
 
     parent, child = pty.openpty()
 
-    user_info = pwd.getpwnam(username)
+    try:
+      user_info = pwd.getpwnam(username)
+    except KeyError:
+      LOG.debug("Unix user account didn't exist at subprocess creation, but it existed previously. Was it deleted?")
+      raise
+      
+      
     path_to_setuid = "%s/setuid" % (os.path.dirname(__file__),)
     subprocess_env[constants.HOME] = user_info.pw_dir
-    command_to_use = [path_to_setuid, '%d' % (user_info.pw_uid,), '%d' % (user_info.pw_gid,)]
+    command_to_use = [path_to_setuid, str(user_info.pw_uid), str(user_info.pw_gid)]
     command_to_use.extend(shell_command)
 
     delegation_token_files = self._get_delegation_tokens(username, delegation_token_dir)
@@ -102,18 +108,20 @@ class Shell(object):
     all_clusters += all_mrclusters().values()
     all_clusters += get_all_hdfs().values()
 
-    LOG.info("all_clusters: %s" % (repr(all_clusters),))
+    LOG.debug("Clusters to potentially acquire tokens for: %s" % (repr(all_clusters),))
 
     for cluster in all_clusters:
       if cluster.security_enabled:
         current_user = cluster.user
-        cluster.setuser(username)
-        token = cluster.get_delegation_token()
-        token_file = tempfile.NamedTemporaryFile(dir=delegation_token_dir)
-        token_file.write(token.delegationTokenBytes)
-        token_file.flush()
-        delegation_token_files.append(token_file)
-        cluster.setuser(current_user)
+        try:
+          cluster.setuser(username)
+          token = cluster.get_delegation_token()
+          token_file = tempfile.NamedTemporaryFile(dir=delegation_token_dir)
+          token_file.write(token.delegationTokenBytes)
+          token_file.flush()
+          delegation_token_files.append(token_file)
+        finally:
+          cluster.setuser(current_user)
 
     return delegation_token_files
 
@@ -327,7 +335,10 @@ class ShellManager(object):
     if not user_info:
       return { constants.NO_SUCH_USER: True }
     
-    shell_types_for_user = [item for item in self.shell_types if user.has_desktop_permission('launch_%s' % (item[constants.KEY_NAME],),'shell')]
+    shell_types_for_user = []
+    for item in self.shell_types:
+      if user.has_desktop_permission('launch_%s' % (item[constants.KEY_NAME],), 'shell'):
+        shell_types_for_user.append(item)
     return { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types_for_user }
 
   def _interrupt_conditionally(self, green_let, message):
@@ -408,7 +419,7 @@ class ShellManager(object):
     try:
       LOG.debug("Trying to create a shell for user %s" % (username,))
       shell_instance = Shell(command, shell_id, username, self._delegation_token_dir)
-    except (OSError, ValueError), exc:
+    except (OSError, ValueError, KeyError), exc:
       LOG.error("Could not create shell : %s" % (exc,))
       return { constants.SHELL_CREATE_FAILED : True }
 
