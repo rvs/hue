@@ -150,6 +150,8 @@ var Shell = new Class({
 			this.previousCommands = json.commands;
 			this.currentCommandIndex = this.previousCommands.length - 1;
 			this.setupTerminal(json.output);
+		} else if (json.notRunningSpawning) {
+			this.errorMessage("Error", "The currently running webserver does not support the Shell app. Please contact your admin.");
 		} else {
 			this.restoreFailed();
 		}
@@ -236,6 +238,12 @@ var Shell = new Class({
 		if (!json.success) {
 			if (json.shellCreateFailed) {
 				this.errorMessage('Error', 'Could not create any more shells. Please try again soon.');
+			} else if (json.notRunningSpawning) {
+				this.errorMessage("Error", "The currently running webserver does not support the Shell app. Please contact your admin.");
+			} else if (json.noSuchUser) {
+				this.errorMessage("Error", "The remote server does not have a Unix user with your username. Please contact your admin.");
+			} else if (json.shellNotAllowed) {
+				this.errorMessage("Error", "You do not have permission to create a Shell of this type. Please contact your admin to get permission.");
 			}
 		} else {
 			this.background.setStyle("background-color","#ffffff");
@@ -338,10 +346,10 @@ var Shell = new Class({
 		} else {
 			if (json.noShellExists) {
 				this.shellExited();
-			} else if (json.shellKilled) {
-				this.errorMessage("Error", "This shell has been killed. Please restart this app.");
 			} else if (json.bufferExceeded) {
 				this.errorMessage("Error", "You have entered too many commands. Please try again.");
+			} else if (json.notRunningSpawning) {
+				this.errorMessage("Error", "The currently running webserver does not support the Shell app. Please contact your admin.");
 			}
 		}
 	},

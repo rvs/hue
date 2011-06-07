@@ -23,12 +23,12 @@ script: Poller.js
 ...
 */
 
-var hueInstanceID = function(){
+var hueInstanceID = function() {
 	var chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz";
 	var lastIndex = chars.length - 1;
 	var stringLength = 128;
 	var randomString = "";
-	for (var i = 0; i < stringLength; i++){
+	for (var i = 0; i < stringLength; i++) {
 		var randomIndex = $random(0, lastIndex);
 		randomString += chars.substring(randomIndex, randomIndex+1);
 	}
@@ -36,7 +36,7 @@ var hueInstanceID = function(){
 }();
 
 Poller = {
-	initialize: function(){
+	initialize: function() {
 		this.outputReq = new Request.JSON({
 			method: 'post',
 			url: '/shell/retrieve_output',
@@ -61,9 +61,9 @@ Poller = {
 		this.backoffTime = 1;
 	},
 
-	listenForShell: function(shellId, offset, callback){
+	listenForShell: function(shellId, offset, callback) {
 		// One-time initialization
-		if(!this.initialized){
+		if (!this.initialized) {
 			this.initialize();
 		}
 
@@ -72,13 +72,13 @@ Poller = {
 
 		// If an output request is already open, use the secondary channel to add the new shell and
 		// offset to the existing output request.
-		if(this.requestOpen){
+		if (this.requestOpen) {
 			this.addToOutputChannel(shellId, offset);
 		}
 		
 		// We might be between openOutputChannel calls, so check to see if we've stopped
 		// the requests or if we're just in between calls. If we've stopped, restart them.
-		if(this.requestsStopped){
+		if (this.requestsStopped) {
 			this.requestsStopped = false;
 			this.openOutputChannel();
 		}
@@ -87,17 +87,17 @@ Poller = {
 	// Remove the dispatch info for the given shell id. We don't have to do a request.cancel() since
 	// either there's only 1 shell and we won't reissue once the request completes, or there are 
 	// multiple and we might want to reissue.
-	stopShellListener: function(shellId){
+	stopShellListener: function(shellId) {
 		this.dispatchInfo[shellId] = null;
 	},
 	
 	// Convert the information stored in this.dispatchInfo into the form that the backend speaks.
-	serializeShellData: function(){
+	serializeShellData: function() {
 		var serializedShells = {};
 		var numShells = 0;
-		for(var shellId in this.dispatchInfo){
+		for (var shellId in this.dispatchInfo) {
 			var shellInfo = this.dispatchInfo[shellId];
-			if(shellInfo){
+			if (shellInfo) {
 				numShells++;
 				serializedShells['shellId'+numShells] = shellId;
 				serializedShells['offset'+numShells] = shellInfo.offset;
@@ -107,47 +107,47 @@ Poller = {
 		return serializedShells;
 	},
 	
-	openOutputChannel: function(){
+	openOutputChannel: function() {
 		this.requestOpen = true;
 		var serializedData = this.serializeShellData();
 		this.outputReq.send({ data: serializedData });
 	},
 
-	outputRequestFailed: function(){
+	outputRequestFailed: function() {
 		this.requestOpen = false;
 		setTimeout(this.openOutputChannel.bind(this), this.backoffTime);
 		this.backoffTime *= 2;
 	},
 	
-	outputReceived: function(json, text){
+	outputReceived: function(json, text) {
 		this.requestOpen = false;
 		this.backoffTime = 1;
 
 		var closeOutputChannel = true; // Used to determine if we should issue a new output request.
-		if(json.periodicResponse){
+		if (json.periodicResponse) {
 			closeOutputChannel = false; // If it's just a "keep-alive", we should reissue.
 		}
 		
 		// The object we got back has a dictionary for every shell ID. We loop through the keys in the object.
-		for(var shellId in json){
+		for (var shellId in json) {
 			var shellInfo = this.dispatchInfo[shellId];
 			// For each key, see if we have any callbacks that are interested in that key. If not, then it
 			// either isn't a shell ID (so it's something like "periodicResponse") or it's a shell ID that 
 			// we no longer care about. That can occur when the user closes the instance of the shell app that
 			// we made this output request for.
-			if(shellInfo){
+			if (shellInfo) {
 				// Let's pull out the data for this shell.
 				var result = json[shellId];
 				// If it's alive, or it has exited, we might have to reissue an output request. We might reissue
 				// if it's exited because there might be more output available.
-				if(result.alive || result.exited){
+				if (result.alive || result.exited) {
 					//Let's update how far into the output stream we are.
 					shellInfo.offset = result.nextOffset;
 					// If it's not alive and no more output is available, then we stop listening for this shell.
-					if(!(result.alive || result.moreOutputAvailable)){
+					if (!(result.alive || result.moreOutputAvailable)) {
 						this.stopShellListener(shellId);
 					}
-				}else{
+				} else {
 					//If it's neither alive nor exited, then we're in some error state, so we definitely stop
 					//listening for this shell
 					this.stopShellListener(shellId);
@@ -158,40 +158,40 @@ Poller = {
 			
 			// Now let's check if we still care about this shell. If not, we'll have called
 			// stopShellListener on it and this.dispatchInfo[shellId] will be null.
-			if(this.dispatchInfo[shellId]){ 
+			if (this.dispatchInfo[shellId]) { 
 				closeOutputChannel = false; // We care still, so let's reissue an output req.
 			}
 		}
 
-		if(closeOutputChannel){
+		if (closeOutputChannel) {
 			//None of the shells in the response are still listening. Check to see if any other is.
-			for(var shellId in this.dispatchInfo){
-				if(this.dispatchInfo[shellId]){
+			for (var shellId in this.dispatchInfo) {
+				if (this.dispatchInfo[shellId]) {
 					closeOutputChannel = false; // >=1 shells are listening, so let's reissue
 				}
 			}
 		}
 
-		if(!closeOutputChannel){
+		if (!closeOutputChannel) {
 			//can't use openOutputChannel.delay(0, this) here because it causes buggy behavior in Firefox.
 			setTimeout(this.openOutputChannel.bind(this), 0);
-		}else{
+		} else {
 			// Let's set this flag to true so that we can reopen the channel on the next listener.
 			this.requestsStopped = true;
 		}
 	},
 	
-	addToOutputChannel: function(shellId, offset){
+	addToOutputChannel: function(shellId, offset) {
 		// First let's store the info
 		this.additionalReqs.push({shellId: shellId, offset: offset});
 		this.sendAdditionalReq();
 	},
 	
-	serializeAdditionalReqs: function(){
+	serializeAdditionalReqs: function() {
 		// Convert the additional things we need to register into our output channel into the
 		// same format as used for output requests.
 		var serializedData = {}
-		for(var i = 0; i < this.additionalReqs.length; i++){
+		for (var i = 0; i < this.additionalReqs.length; i++) {
 			serializedData["shellId" + (i+1)] = this.additionalReqs[i].shellId;
 			serializedData["offset" + (i+1)] = this.additionalReqs[i].offset;
 		}
@@ -199,32 +199,34 @@ Poller = {
 		return serializedData;
 	},
 	
-	sendAdditionalReq: function(){
+	sendAdditionalReq: function() {
 		this.addToOutputReqOpen = true;
 		var serializedData = this.serializeAdditionalReqs();
 		this.numAdditionalReqsSent = this.additionalReqs.length;
 		this.addToOutputReq.send({ data: serializedData });
 	},
 	
-	addToOutputCompleted: function(json, text){
+	addToOutputCompleted: function(json, text) {
 		this.backoffTime = 1;
 		this.addToOutputReqOpen = false;
-		if(json.success){
+		if (json.success) {
 			this.additionalReqs.splice(0, this.numAdditionalReqsSent);
 			this.numAdditionalReqsSent = 0;
-			if(this.additionalReqs.length){
+			if (this.additionalReqs.length) {
 				this.sendAdditionalReq.delay(0, this);
-			setTimeout(this.sendAdditionalReq.bind(this), 0);
+				setTimeout(this.sendAdditionalReq.bind(this), 0);
 			}
-		}else if(json.restartHue){
+		} else if (json.restartHue) {
 			alert("Your version of Hue is not up to date. Please restart your browser.");
-		}else{
+		} else if (json.notRunningSpawning) {
+			alert("The server is not running Spawning and cannot support the Shell app.");
+		} else {
 			this.numAdditionalReqsSent = 0;
 			setTimeout(this.sendAdditionalReq.bind(this), 0);
 		}
 	},
 	
-	addToOutputFailed: function(){
+	addToOutputFailed: function() {
 		this.addToOutputReqOpen = false;
 		this.numAdditionalReqsSent = 0;
 		setTimeout(this.sendAdditionalReq.bind(this), this.backoffTime);
