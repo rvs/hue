@@ -23,10 +23,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static int min_uid = 1000;
-static int min_gid = 1000;
-static int max_uid = 5000;
-static int max_gid = 5000;
+static int min_uid = 500;
 
 int chown_delegation_token_files(char *delegation_token_files, int uid, int gid) {
   char *modifiable_delegation_token_files = strdup(delegation_token_files);
@@ -104,13 +101,8 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  if (uid < min_uid || uid > max_uid) {
-    fprintf(stderr, "Error: value %d for UID is not within permissible range [%d, %d]\n", uid, min_uid, max_uid);
-    return -1;
-  }
-
-  if (gid < min_gid || gid > max_gid) {
-    fprintf(stderr, "Error: value %d for GID is not within permissible range [%d, %d]\n", gid, min_gid, max_gid);
+  if (uid < min_uid) {
+    fprintf(stderr, "Error: value %d for UID is less than the minimum UID allowed (%d)\n", uid, min_uid);
     return -1;
   }
 
@@ -131,7 +123,7 @@ int main(int argc, char **argv) {
 
   int executable_index = 3;
   const char *executable = argv[executable_index];
-  char **const param_list = (char **const) calloc(argc - executable_index + 1, sizeof(char *));
+  char **param_list = (char **) calloc(argc - executable_index + 1, sizeof(char *));
   int i;
   for (i = 0; i < argc - executable_index; i++) {
     param_list[i] = argv[executable_index + i];

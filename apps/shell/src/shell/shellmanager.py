@@ -33,14 +33,19 @@ from eventlet.green import select
 import signal
 import simplejson
 import subprocess
+import sys
 import tempfile
 from eventlet.green import time
-import sys
+import tty
 
 import logging
 LOG = logging.getLogger(__name__)
 
 class NewShellInterrupt(Exception):
+  """
+  Eventlet's greenlets only allow for exceptions as the way of communicating between greenlets.
+  We use the NewShellInterrupt for cross-greenlet communication.
+  """
   def __init__(self, new_shell_pairs):
     self.new_shell_pairs = new_shell_pairs
 
@@ -56,14 +61,18 @@ class Shell(object):
       if value:
         subprocess_env[item] = value
 
-    parent, child = pty.openpty()
-
     try:
       user_info = pwd.getpwnam(username)
     except KeyError:
-      LOG.debug("Unix user account didn't exist at subprocess creation, but it existed previously. Was it deleted?")
+      LOG.debug("Unix user account didn't exist at subprocess creation. Was it deleted?")
       raise
-      
+    
+    parent, child = pty.openpty()
+
+    try:
+      tty.setraw(master)
+    except tty.error:
+      LOG.debug("Could not set parent fd to raw mode, user will see echoed input.")
       
     path_to_setuid = "%s/setuid" % (os.path.dirname(__file__),)
     subprocess_env[constants.HOME] = user_info.pw_dir
@@ -72,7 +81,8 @@ class Shell(object):
 
     delegation_token_files = self._get_delegation_tokens(username, delegation_token_dir)
     if delegation_token_files:
-      subprocess_env[constants.HADOOP_TOKEN_FILE_LOCATION] = ','.join([token_file.name for token_file in delegation_token_files])
+      delegation_token_files = [token_file.name for token_file in delegation_token_files]
+      subprocess_env[constants.HADOOP_TOKEN_FILE_LOCATION] = ','.join(delegation_token_files)
 
     try:
       p = subprocess.Popen(command_to_use, stdin=child, stdout=child, stderr=child,
@@ -103,6 +113,11 @@ class Shell(object):
     self.destroyed = False
 
   def _get_delegation_tokens(self, username, delegation_token_dir):
+    """
+    If operating against Kerberized Hadoop, we'll need to have obtained delegation tokens for
+    the user we want to run the subprocess as. We have to do it here rather than in the subprocess
+    because the subprocess does not have Kerberos credentials in that case.
+    """
     delegation_token_files = []
     all_clusters = []
     all_clusters += all_mrclusters().values()
@@ -126,6 +141,9 @@ class Shell(object):
     return delegation_token_files
 
   def mark_for_cleanup(self):
+    """
+    Flag this shell to be picked up at the next iteration of handle_periodic.
+    """
     self.remove_at_next_iteration = True
 
   def get_previous_output(self):
@@ -136,6 +154,10 @@ class Shell(object):
     return ( val, len(val))
 
   def get_previous_commands(self):
+    """
+    Return the list of previously entered commands. This is used for bash_history semantics
+    when restoring Shells.
+    """
     return self._commands
 
   def get_cached_output(self, offset):
@@ -151,6 +173,10 @@ class Shell(object):
     return (next_output, more_available, self._output_buffer_length)
 
   def process_command(self, command):
+    """
+    Write the command to the end of the wite buffer, and spawn a greenlet to write it
+    into the subprocess when the subprocess becomes writable.
+    """
     LOG.debug("Command received for pid %d : '%s'" % (self.pid, command,))
     if len(self._write_buffer.getvalue()) >= shell.conf.SHELL_WRITE_BUFFER_LIMIT.get():
       LOG.debug("Write buffer too full, dropping command")
@@ -163,11 +189,13 @@ class Shell(object):
 
   def _append_to_write_buffer(self, command):
     """
-    Append the received command, with an extra newline, to the write buffer. This buffer is used
+    Append the received command to the write buffer. This buffer is used
     when the child becomes readable to send commands to the child subprocess.
     """
     self._write_buffer.seek(len(self._write_buffer.getvalue()))
     self._write_buffer.write("%s" % (command,))
+    # We seek back to the beginning so that when the child becomes writable we
+    # feed the commands to the child in the order they were received.
     self._write_buffer.seek(0)
     self._commands.append(command)
     while len(self._commands) > 25:
@@ -182,6 +210,10 @@ class Shell(object):
     return contents
 
   def _write_child_when_able(self):
+    """
+    Select on the child's input file descriptor becoming writable, and then write commands to it.
+    If not successful in writing all the commands, spawn a new greenlet to retry.
+    """
     LOG.debug("write_child_when_able")
     buffer_contents = self._read_from_write_buffer()
     if not buffer_contents:
@@ -271,6 +303,9 @@ class Shell(object):
     return result
   
   def destroy(self):
+    """
+    Clean up the resources used for this shell.
+    """
     try:
       for delegation_token_file in self._delegation_token_files:
         delegation_token_file.close()
@@ -333,19 +368,27 @@ class ShellManager(object):
     except KeyError:
       user_info = None
     if not user_info:
-      return { constants.NO_SUCH_USER: True }
+      return None
     
     shell_types_for_user = []
     for item in self.shell_types:
       if user.has_desktop_permission('launch_%s' % (item[constants.KEY_NAME],), 'shell'):
         shell_types_for_user.append(item)
-    return { constants.SUCCESS: True, constants.SHELL_TYPES: shell_types_for_user }
+    return shell_types_for_user
 
   def _interrupt_conditionally(self, green_let, message):
+    """
+    If the greenlet is currently interruptable, (i.e. it's in a try/catch block with a handler
+    for a NewShellInterrupt, then interrupt it with the given message.
+    """
     if self._greenlet_interruptable.get(green_let):
       green_let.throw(message)
 
   def _cleanup_greenlets_for_removed_pids(self, removed_pids):
+    """
+    Clean up any greenlets listening for the removed pids. This includes both selecting
+    greenlets and non-selecting greenlets.
+    """
     greenlets_to_cleanup = set()
     for pid in removed_pids:
       listening_hid = self._hids_by_pid.get(pid)
@@ -384,8 +427,10 @@ class ShellManager(object):
       eventlet.spawn_n(self._cleanup_greenlets_for_removed_pids, removed_pids)
       eventlet.spawn_after(1, self._handle_periodic)
 
-
   def _cleanup_shell(self, key):
+    """
+    Clean up metadata for the shell specified by key.
+    """
     shell_instance = self._shells[key]
     shell_instance.destroy()
     self._shells.pop(key)
@@ -457,14 +502,23 @@ class ShellManager(object):
       constants.COMMANDS: commands}
 
   def process_command(self, username, shell_id, command):
+    """
+    Find the shell specified by the (username, shell_id) tuple, and then write the incoming command
+    to that shell.
+    """
     shell_instance = self._shells.get((username, shell_id))
     if not shell_instance:
       return { constants.NO_SHELL_EXISTS : True }
     shell_instance.time_received = time.time()
-    command += "\n" # TODO: Tab completion
+    command += "\n"
     return shell_instance.process_command(command)
 
   def _interrupt_with_output(self, readable):
+    """
+    For each of the readable file descriptors, find all greenlets which were not themselves
+    selecting but were interested in the output, and spawn a greenlet to go wake each
+    of them up.
+    """
     greenlets_set = set()
     for fd in readable:
       shell_instance = self._shells_by_fds.get(fd)

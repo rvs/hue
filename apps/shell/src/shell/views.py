@@ -32,29 +32,34 @@ def index(request):
     return render('not_running_spawning.mako', request, {})
   shell_manager = ShellManager.global_instance()
   result = shell_manager.available_shell_types(request.user)
-  if result.get(constants.NO_SUCH_USER):
+  if result is None:
     return render('no_such_user.mako', request, {})
-  shells = result.get(constants.SHELL_TYPES, [])
-  return render('index.mako', request, {'shells':shells})
+  return render('index.mako', request, {'shells':result})
 
 def create(request):
   if not _running_with_spawning(request):
-    result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
-    return HttpResponse(result, mimetype="application/json")
+    if request.method == "POST":
+      result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
+      return HttpResponse(result, mimetype="application/json")
+    else
+      return render('not_running_spawning.mako', request, {})
   shell_manager = ShellManager.global_instance()
   user = request.user
   if request.method == "POST":
-    key_name = request.POST[constants.KEY_NAME]
+    key_name = request.POST.get(constants.KEY_NAME, "")
   else:
-    key_name = request.GET[constants.KEY_NAME]
+    key_name = request.GET.get(constants.KEY_NAME, "")
   result = shell_manager.try_create(user, key_name)
   if request.method == "POST":
     return HttpResponse(simplejson.dumps(result), mimetype="application/json")
   else:
-    shell_types = shell_manager.available_shell_types(user).get(constants.SHELL_TYPES, [])
-    dict_for_template = {'shells': shell_types}
-    dict_for_template['shell_id'] = result.get(constants.SHELL_ID)
-    return render('index.mako', request, dict_for_template)
+    if constants.SUCCESS in result:
+      shell_types = shell_manager.available_shell_types(user)
+      dict_for_template = { 'shells' : shell_types,
+                            'shell_id' : result.get(constants.SHELL_ID) }
+      return render('index.mako', request, dict_for_template)
+    else:
+      return render('failed_to_create.mako', request, {})
 
 def kill_shell(request):
   if not _running_with_spawning(request):

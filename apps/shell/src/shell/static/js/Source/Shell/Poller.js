@@ -43,7 +43,7 @@ Poller = {
 			onSuccess: this.outputReceived.bind(this),
 			onFailure: this.outputRequestFailed.bind(this),
 			headers: { "Hue-Instance-ID" : hueInstanceID }
-			});
+		});
 		this.addToOutputReq = new Request.JSON({
 			method: 'post',
 			url: '/shell/add_to_output',
