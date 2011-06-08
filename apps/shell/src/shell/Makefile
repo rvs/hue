@@ -19,5 +19,5 @@ CFLAGS=-Werror -Wall
 .PHONY: setuid
 setuid: setuid.c
 	gcc ${CFLAGS} setuid.c -o setuid 
-	chmod 4755 setuid
+	chmod 4711 setuid
 

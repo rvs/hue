@@ -22,8 +22,92 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
+#include <sys/stat.h>
 
 static int min_uid = 500;
+
+/**
+ * Gets the name of the currently executing binary. The caller is responsible for freeing
+ * the returned pointer.
+ */
+char *get_executable_name() {
+  char buffer[PATH_MAX];
+  snprintf(buffer, PATH_MAX, "/proc/%u/exe", getpid());
+
+  char *filename = (char *) calloc(1, PATH_MAX);
+  if (filename == NULL) {
+    fprintf(stderr, "Error: calloc returned null, system out of memory.\n");
+    return NULL;
+  }
+
+  errno = 0;
+  ssize_t len = readlink(buffer, filename, PATH_MAX);
+  if (len == -1) {
+    fprintf(stderr, "Can't get executable name from \"%s\"\n", buffer);
+    fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
+    free(filename);
+    return NULL;
+  }
+
+  if (len >= PATH_MAX) {
+    fprintf(stderr, "Executable name %.*s is longer than %d characters.\n", PATH_MAX, filename, PATH_MAX);
+    free(filename);
+    return NULL;
+  }
+
+  return filename;
+}
+
+/**
+ * Check the permissions on the setuid binary to make sure that security is
+ * promisable. For this, we need the binary to
+ *    * be user-owned by root
+ *    * others do not have write permissions
+ *    * be setuid
+ */
+int check_binary_permissions() {
+
+  char *executable_file = get_executable_name();
+  if (executable_file == NULL) {
+    return -1;
+  }
+
+  struct stat filestat;
+  errno = 0;
+  if (stat(executable_file, &filestat) != 0) {
+    fprintf(stderr, "Could not stat the executable : %s\n", executable_file);
+    fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
+    free(executable_file);
+    return -1;
+  }
+
+  uid_t binary_euid = filestat.st_uid; // Binary's user owner
+  
+  // Effective uid should be root
+  if (binary_euid != 0) {
+    fprintf(stderr, "The setuid binary should be user-owned by root.\n");
+    free(executable_file);
+    return -1;
+  }
+
+  // check others do not have write permissions
+  if ((filestat.st_mode & S_IWOTH) == S_IWOTH) {
+    fprintf(stderr, "The setuid binary should not be writable by others.\n");
+    free(executable_file);
+    return -1;
+  }
+
+  // Binary should be setuid executable
+  if ((filestat.st_mode & S_ISUID) == 0) {
+    fprintf(stderr, "The setuid binary should be set setuid.\n");
+    free(executable_file);
+    return -1;
+  }
+
+  free(executable_file);
+  return 0;
+}
 
 int chown_delegation_token_files(char *delegation_token_files, int uid, int gid) {
   char *modifiable_delegation_token_files = strdup(delegation_token_files);
@@ -106,6 +190,11 @@ int main(int argc, char **argv) {
     return -1;
   }
 
+  if (check_binary_permissions() != 0) {
+    fprintf(stderr, "Error: permissions on setuid binary are not correct. Exiting.\n");
+    return -1;
+  }
+
   char *delegation_token_files = getenv("HADOOP_TOKEN_FILE_LOCATION");
   if (delegation_token_files != NULL) {
     int chown_result = chown_delegation_token_files(delegation_token_files, uid, gid);
@@ -124,6 +213,12 @@ int main(int argc, char **argv) {
   int executable_index = 3;
   const char *executable = argv[executable_index];
   char **param_list = (char **) calloc(argc - executable_index + 1, sizeof(char *));
+
+  if (param_list == NULL) {
+    fprintf(stderr, "Error: calloc returned null, system out of memory.\n");
+    return -1;
+  }
+
   int i;
   for (i = 0; i < argc - executable_index; i++) {
     param_list[i] = argv[executable_index + i];

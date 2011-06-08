@@ -65,6 +65,8 @@ SPAWNING_SERVER_OPTIONS = {
   'watch': None 
 }
 
+LOG = logging.getLogger(__name__)
+
 class Command(BaseCommand):
     help = "Spawning Server for Hue."
 
@@ -73,7 +75,7 @@ class Command(BaseCommand):
         from django.utils import translation
 
         if not conf.ENABLE_CHERRYPY_SERVER.get():
-          logging.info("Hue is configured to not start Spawning server.")
+          LOG.info("Hue is configured to not start Spawning server.")
           sys.exit(0)
 
         # Activate the current language, because it won't get activated later.
@@ -125,9 +127,9 @@ def drop_privileges_if_necessary(options):
 def runspawningserver():
   try:
     sock = spawning.spawning_controller.bind_socket(SPAWNING_SERVER_OPTIONS)
-  except: # TODO: Fix this bare except
-    print 'Could not bind port %s. Exiting' % (str(SPAWNING_SERVER_OPTIONS['port']),)
-    sys.exit(-1)
+  except Exception, ex:
+    LOG.error('Could not bind port %s: %s. Exiting' % (str(SPAWNING_SERVER_OPTIONS['port']), ex,))
+    return
   
   drop_privileges_if_necessary(SPAWNING_SERVER_OPTIONS)
 

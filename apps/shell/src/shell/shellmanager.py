@@ -70,7 +70,7 @@ class Shell(object):
     parent, child = pty.openpty()
 
     try:
-      tty.setraw(master)
+      tty.setraw(parent)
     except tty.error:
       LOG.debug("Could not set parent fd to raw mode, user will see echoed input.")
       

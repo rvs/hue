@@ -41,7 +41,7 @@ def create(request):
     if request.method == "POST":
       result = simplejson.dumps({ constants.NOT_RUNNING_SPAWNING : True })
       return HttpResponse(result, mimetype="application/json")
-    else
+    else:
       return render('not_running_spawning.mako', request, {})
   shell_manager = ShellManager.global_instance()
   user = request.user
