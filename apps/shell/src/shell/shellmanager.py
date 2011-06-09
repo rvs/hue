@@ -64,7 +64,7 @@ class Shell(object):
     try:
       user_info = pwd.getpwnam(username)
     except KeyError:
-      LOG.debug("Unix user account didn't exist at subprocess creation. Was it deleted?")
+      LOG.error("Unix user account didn't exist at subprocess creation. Was it deleted?")
       raise
     
     parent, child = pty.openpty()
@@ -85,6 +85,8 @@ class Shell(object):
       subprocess_env[constants.HADOOP_TOKEN_FILE_LOCATION] = ','.join(delegation_token_files)
 
     try:
+      LOG.debug("Starting subprocess with command '%s' and environment '%s'" % 
+                                                             (command_to_use, subprocess_env,))
       p = subprocess.Popen(command_to_use, stdin=child, stdout=child, stderr=child,
                                                                  env=subprocess_env, close_fds=True)
     except (OSError, ValueError):

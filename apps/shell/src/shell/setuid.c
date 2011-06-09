@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <grp.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,14 @@
 #include <sys/stat.h>
 
 static int min_uid = 500;
+
+void log_error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  vfprintf(stderr, format, args);
+  va_end(args);
+  fprintf(stderr, "\n");
+}
 
 /**
  * Gets the name of the currently executing binary. The caller is responsible for freeing
@@ -37,21 +46,19 @@ char *get_executable_name() {
 
   char *filename = (char *) calloc(1, PATH_MAX);
   if (filename == NULL) {
-    fprintf(stderr, "Error: calloc returned null, system out of memory.\n");
+    log_error("Error: calloc returned null, system out of memory.");
     return NULL;
   }
 
-  errno = 0;
   ssize_t len = readlink(buffer, filename, PATH_MAX);
   if (len == -1) {
-    fprintf(stderr, "Can't get executable name from \"%s\"\n", buffer);
-    fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
+    log_error("Can't get executable name from \"%s\": %s", buffer, strerror(errno));
     free(filename);
     return NULL;
   }
 
   if (len >= PATH_MAX) {
-    fprintf(stderr, "Executable name %.*s is longer than %d characters.\n", PATH_MAX, filename, PATH_MAX);
+    log_error("Executable name %.*s is longer than %d characters.", PATH_MAX, filename, PATH_MAX);
     free(filename);
     return NULL;
   }
@@ -74,33 +81,22 @@ int check_binary_permissions() {
   }
 
   struct stat filestat;
-  errno = 0;
   if (stat(executable_file, &filestat) != 0) {
-    fprintf(stderr, "Could not stat the executable : %s\n", executable_file);
-    fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
-    free(executable_file);
-    return -1;
-  }
-
-  uid_t binary_euid = filestat.st_uid; // Binary's user owner
-  
-  // Effective uid should be root
-  if (binary_euid != 0) {
-    fprintf(stderr, "The setuid binary should be user-owned by root.\n");
+    log_error("Could not stat the executable %s : %s", executable_file, strerror(errno));
     free(executable_file);
     return -1;
   }
 
   // check others do not have write permissions
   if ((filestat.st_mode & S_IWOTH) == S_IWOTH) {
-    fprintf(stderr, "The setuid binary should not be writable by others.\n");
+    log_error("The setuid binary should not be writable by others.");
     free(executable_file);
     return -1;
   }
 
   // Binary should be setuid executable
   if ((filestat.st_mode & S_ISUID) == 0) {
-    fprintf(stderr, "The setuid binary should be set setuid.\n");
+    log_error("The setuid binary should be set setuid.");
     free(executable_file);
     return -1;
   }
@@ -112,17 +108,15 @@ int check_binary_permissions() {
 int chown_delegation_token_files(char *delegation_token_files, int uid, int gid) {
   char *modifiable_delegation_token_files = strdup(delegation_token_files);
   if (modifiable_delegation_token_files == NULL) {
-    fprintf(stderr, "Error: strdup returned NULL, system out of memory.\n");
+    log_error("Error: strdup returned NULL, system out of memory.");
     return -1;
   }
 
   char *delegation_token_file = strtok(modifiable_delegation_token_files, ",");
   while (delegation_token_file != NULL) {
-    errno = 0;
     int chown_result = chown(delegation_token_file, uid, gid);
-    if (chown_result == -1) {
-      fprintf(stderr, "Could not change ownership of file \"%s\" to UID %d and GID %d\n", delegation_token_file, uid, gid);
-      fprintf(stderr, "Errno %d : %s\n", errno, strerror(errno));
+    if (chown_result != 0) {
+      log_error("Could not change ownership of file \"%s\" to UID %d and GID %d : %s", delegation_token_file, uid, gid, strerror(errno));
       free(modifiable_delegation_token_files);
       return -1;
     }
@@ -135,27 +129,21 @@ int chown_delegation_token_files(char *delegation_token_files, int uid, int gid)
 int set_gid_uid(int gid, int uid) {
   gid_t group = gid;
 
-  errno = 0;
   int result_of_step = setgroups(1, &group);
   if (result_of_step != 0) {
-    fprintf(stderr, "Error: Could not set groups list to [%d]\n", gid);
-    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    log_error("Error: Could not set groups list to [%d] : %s", gid, strerror(errno));
     return -1;
   }
 
-  errno = 0;
   result_of_step = setregid(gid, gid);
   if (result_of_step != 0) {
-    fprintf(stderr, "Error: Could not set real and effective group ID to %d\n", gid);
-    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    log_error("Error: Could not set real and effective group ID to %d : %s", gid, strerror(errno));
     return -1;
   }
 
-  errno = 0;
   result_of_step = setreuid(uid, uid);
   if (result_of_step != 0) {
-    fprintf(stderr, "Error: Could not set real and effective user ID to %d\n", uid);
-    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    log_error("Error: Could not set real and effective user ID to %d : %s", uid, strerror(errno));
     return -1;
   }
 
@@ -165,33 +153,35 @@ int set_gid_uid(int gid, int uid) {
 int main(int argc, char **argv) {
   
   if (argc < 4){
-    fprintf(stderr, "Usage: setuid <desired user ID> <desired group ID> <executable> <arguments for executable>\n");
+    log_error("Usage: setuid <desired user ID> <desired group ID> <executable> <arguments for executable>");
     return -1;
   }
 
+  // Because strtol can return the overflow/underflow error codes if it parses those integers correctly,
+  // we have to set errno to 0 before the call. The function will set errno to a non-zero value if an
+  // error occurs.
   errno = 0;
   int uid = strtol(argv[1], (char **)NULL, 10);
   if (errno != 0) {
-    fprintf(stderr, "Error: Invalid value for UID: \"%s\"\n", argv[1]);
-    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    log_error("Error: Invalid value for UID: \"%s\" : %s", argv[1], strerror(errno));
     return -1;
   }
 
+  // See comment above for why we have to set errno to 0 before calling strtol.
   errno = 0;
   int gid = strtol(argv[2], (char **)NULL, 10);
   if (errno != 0) {
-    fprintf(stderr, "Error: Invalid value for GID: \"%s\"\n", argv[2]);
-    fprintf(stderr, "Errno %d: %s\n", errno, strerror(errno));
+    log_error("Error: Invalid value for GID: \"%s\" : %s", argv[2], strerror(errno));
     return -1;
   }
 
   if (uid < min_uid) {
-    fprintf(stderr, "Error: value %d for UID is less than the minimum UID allowed (%d)\n", uid, min_uid);
+    log_error("Error: value %d for UID is less than the minimum UID allowed (%d)", uid, min_uid);
     return -1;
   }
 
   if (check_binary_permissions() != 0) {
-    fprintf(stderr, "Error: permissions on setuid binary are not correct. Exiting.\n");
+    log_error("Error: permissions on setuid binary are not correct. Exiting.");
     return -1;
   }
 
@@ -199,14 +189,14 @@ int main(int argc, char **argv) {
   if (delegation_token_files != NULL) {
     int chown_result = chown_delegation_token_files(delegation_token_files, uid, gid);
     if (chown_result != 0) {
-      fprintf(stderr, "Error: Could not change ownership of delegation token files, exiting.\n");
+      log_error("Error: Could not change ownership of delegation token files, exiting.");
       return -1;
     }
   }
 
   int set_gid_uid_result = set_gid_uid(gid, uid);
   if (set_gid_uid_result != 0) {
-    fprintf(stderr, "Error: Could not correctly change to running as correct user, exiting.\n");
+    log_error("Error: Could not correctly change to running as correct user, exiting.");
     return -1;
   }
 
@@ -215,7 +205,7 @@ int main(int argc, char **argv) {
   char **param_list = (char **) calloc(argc - executable_index + 1, sizeof(char *));
 
   if (param_list == NULL) {
-    fprintf(stderr, "Error: calloc returned null, system out of memory.\n");
+    log_error("Error: calloc returned null, system out of memory.");
     return -1;
   }
 
@@ -226,8 +216,7 @@ int main(int argc, char **argv) {
 
   int result = execvp(executable, param_list);
 
-  fprintf(stderr, "An exec error occurred. The given command for the executable was \"%s\". Is this on the path?.\n", executable);
-  fprintf(stderr, "Exec returned %d with errno %d: %s\n", result, errno, strerror(errno));
+  log_error("Error: exec returned %d with error: %s", result, strerror(errno));
   return 0;
 }
 
