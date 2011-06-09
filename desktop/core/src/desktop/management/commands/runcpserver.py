@@ -49,7 +49,7 @@ class Command(BaseCommand):
         from django.conf import settings
         from django.utils import translation
 
-        if not conf.ENABLE_CHERRYPY_SERVER.get():
+        if not conf.ENABLE_SERVER.get():
           logging.info("Desktop is configured to not start CherryPy server.")
           sys.exit(0)
 

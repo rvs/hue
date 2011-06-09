@@ -74,7 +74,7 @@ class Command(BaseCommand):
         from django.conf import settings
         from django.utils import translation
 
-        if not conf.ENABLE_CHERRYPY_SERVER.get():
+        if not conf.ENABLE_SERVER.get():
           LOG.info("Hue is configured to not start Spawning server.")
           sys.exit(0)
 
