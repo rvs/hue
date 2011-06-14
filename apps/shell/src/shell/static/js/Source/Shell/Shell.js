@@ -87,12 +87,12 @@ var Shell = new Class({
 		var shellIdContainer = $(this).getElement('.shell_id');
 		if (shellIdContainer) {
 			this.shellId = shellIdContainer.get("text");
-		} 
-		
+		}
+
 		// Set up some state shared between "fresh" and "restored" shells.
 		this.previousCommands = [];
 		this.currentCommandIndex = -1;
-		
+
 		this.jframe.markForCleanup(this.cleanUp.bind(this));
 		this.shellKilled = false;
 
@@ -109,7 +109,7 @@ var Shell = new Class({
 		});
 
 		this.inputExpander = new Fx.Morph(this.input, { duration:0, transition: Fx.Transitions.linear });
-		
+
 		this.jframe.scroller.setOptions({
 			duration: 200
 		});
@@ -119,7 +119,7 @@ var Shell = new Class({
 			method: 'post',
 			url: '/shell/process_command',
 			onSuccess: this.commandProcessed.bind(this)
-		}); 
+		});
 
 	 if (this.shellId) {
 			this.startRestore(view);
@@ -184,7 +184,7 @@ var Shell = new Class({
 		// Register the shell we have with Poller, so we can be included in the output channel it has.
 		Poller.listenForShell(this.shellId, this.nextOffset, this.outputReceived.bind(this));
 	},
-	
+
 	focusInput: function() {
 		if (!this.input.get("disabled")) {
 			this.input.focus();
@@ -196,7 +196,7 @@ var Shell = new Class({
 		var mainMenuButtons = $(this).getElements("a.menu_button");
 		mainMenuButtons.each(function(button) {
 			var keyName = button.nextSibling.get("text");
-			button.addEvent('click', this.handleShellSelection.bind(this, keyName)); 
+			button.addEvent('click', this.handleShellSelection.bind(this, keyName));
 		}.bind(this));
 	},
 
@@ -256,7 +256,7 @@ var Shell = new Class({
 			this.setupTerminal();
 		}
 	},
-	
+
 	showPreviousCommand: function() {
 		if (this.currentCommandIndex < 0 || this.currentCommandIndex >= this.previousCommands.length) {
 			this.currentCommandIndex = this.previousCommands.length-1;
@@ -268,7 +268,7 @@ var Shell = new Class({
 			this.focusInput();
 		}
 	},
-	
+
 	showNextCommand: function() {
 		if (this.currentCommandIndex < 0 || this.currentCommandIndex >= this.previousCommands.length) {
 			this.currentCommandIndex = this.previousCommands.length?0:-1;
@@ -280,7 +280,7 @@ var Shell = new Class({
 			this.focusInput();
 		}
 	},
-	
+
 	handleUpKey: function() {
 		var tempInputValue = this.tempInputValue;
 		this.tempInputValue = null;
@@ -288,7 +288,7 @@ var Shell = new Class({
 			this.showPreviousCommand();
 		}
 	},
-	
+
 	handleDownKey: function() {
 		var tempInputValue = this.tempInputValue;
 		this.tempInputValue = null;
@@ -314,7 +314,7 @@ var Shell = new Class({
 		}
 		this.resizeInput.delay(0, this);
 	},
-	
+
 	recordCommand: function() {
 		var enteredCommand = this.input.get("value");
 		if (enteredCommand) {
@@ -396,12 +396,12 @@ var Shell = new Class({
 		this.disableInput();
 		this.background.setStyle("background-color", "#cccccc");
 	},
-	
+
 	errorMessage:function(title, message) {
 		this.errorStatus();
 		this.alert(title, message);
 	},
-	
+
 	shellExited:function() {
 		this.errorStatus();
 		this.appendToOutput("\n[Process completed]");
@@ -418,13 +418,13 @@ var Shell = new Class({
 		if (this.commandReq) {
 			this.commandReq.cancel();
 		}
-		
+
 		//Clear out this.options.shellId and this.shellId, but save the value in a local variable
 		//for the purposes of this function.
 		this.options.shellId = null;
 		var shellId = this.shellId;
 		this.shellId = null;
-		
+
 		//Tell the shell poller to stop listening for shellId. Important to do this before
 		//sending the kill shell request because then the resulting output doesn't cause
 		//a non-existent callback to be called.
@@ -442,5 +442,5 @@ var Shell = new Class({
 			}
 		}
 	}
-	
+
 });

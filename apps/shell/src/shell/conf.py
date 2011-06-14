@@ -19,14 +19,13 @@ This file specifies the structure that hue-shell.ini should follow.
 See conf/hue-shell.ini to configure which shells are available.
 """
 from desktop.lib.conf import Config, ConfigSection, UnspecifiedConfigSection
-
+import shell.utils as utils
 
 SHELL_TYPES = UnspecifiedConfigSection(
                            key='shelltypes',
                            each=ConfigSection(members=dict(
                                nice_name=Config(key='nice_name', required=True),
                                command=Config(key='command', required=True),
-                               short_name=Config(key='short_name', required=True),
                                help_doc=Config(key='help', required=False))))
 
 SHELL_BUFFER_AMOUNT = Config(
@@ -58,4 +57,19 @@ SHELL_DELEGATION_TOKEN_DIR = Config(
   help="The directory to use to store the temporary delegation tokens used by shell subprocesses",
   default="/tmp/hue_shell_delegation_tokens",
   type=str)
+
+def config_validator():
+  """
+  config_validator() -> [ (config_variable, error_message) ]
+
+  Called by core check_config() view.
+  """
+  result = []
+  for item in SHELL_TYPES.keys():
+    command = SHELL_TYPES[item].command.get().strip().split()
+    nice_name = SHELL_TYPES[item].nice_name.get().strip()
+    if not utils.executable_exists(command):
+      result.append((SHELL_TYPES, "Command '%s' for entry '%s' in Shell app configuration cannot \
+                                            be found on the path." % (' '.join(command), item,) ,))
+  return result
 

@@ -14,13 +14,29 @@ from django.template.defaultfilters import urlencode, escape
         % if toolbar:
           <div class="nav_menu">
           % if len(shells) == 1:
-            <a target="Shell" class="nav_button Button round" href="${url('shell.views.create')}?keyName=${shells[0]["keyName"]}">${shells[0]["niceName"]}</a>
+            % if shells[0]["exists"]:
+              <a target="Shell" class="nav_button Button round" href="${url('shell.views.create')}?keyName=${shells[0]["keyName"]}">${shells[0]["niceName"]}</a>
+            % else:
+              <a class="nav_button Button round disabled">${shells[0]["niceName"]}</a>
+            % endif
           % else:
-            <a target="Shell" class="nav_button Button roundLeft" href="${url('shell.views.create')}?keyName=${shells[0]["keyName"]}">${shells[0]["niceName"]}</a>
+            % if shells[0]["exists"]:
+              <a target="Shell" class="nav_button Button roundLeft" href="${url('shell.views.create')}?keyName=${shells[0]["keyName"]}">${shells[0]["niceName"]}</a>
+            % else:
+              <a class="nav_button Button roundLeft disabled">${shells[0]["niceName"]}</a>
+            % endif
             % for item in shells[1:-1]:
-              <a target="Shell" class="nav_button Button" href="${url('shell.views.create')}?keyName=${item["keyName"]}">${item["niceName"]}</a>
+              % if item["exists"]:
+                <a target="Shell" class="nav_button Button" href="${url('shell.views.create')}?keyName=${item["keyName"]}">${item["niceName"]}</a>
+              % else:
+                <a class="nav_button Button disabled">${item["niceName"]}</a>
+              % endif
             % endfor
-            <a target="Shell" class="nav_button Button roundRight" href="${url('shell.views.create')}?keyName=${shells[-1]["keyName"]}">${shells[-1]["niceName"]}</a>
+            % if shells[-1]["exists"]:
+              <a target="Shell" class="nav_button Button roundRight" href="${url('shell.views.create')}?keyName=${shells[-1]["keyName"]}">${shells[-1]["niceName"]}</a>
+            % else:
+              <a class="nav_button Button roundRight disabled">${shells[-1]["niceName"]}</a>
+            % endif
           % endif
           </div>
         % endif

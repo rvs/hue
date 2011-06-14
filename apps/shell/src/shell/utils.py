@@ -18,8 +18,10 @@
 A mixed bag of utilities that are useful for the Shell app but aren't terribly interesting.
 """
 
+import desktop.lib.i18n
 import logging
 import shell.constants as constants
+from eventlet.green import os
 
 LOG = logging.getLogger(__name__)
 
@@ -40,6 +42,21 @@ def parse_shell_pairs(request):
     else:
       shell_pairs.append((shell_id_i, offset_i, ))
   return shell_pairs
+
+
+def executable_exists(executable):
+  if not executable:
+    return False
+  if type(executable) == list:
+    executable = executable[0]
+  env = desktop.lib.i18n.make_utf8_env()
+  path = env.get("PATH", os.defpath)
+  path = [os.path.normpath(item) for item in path.strip().strip(os.pathsep).split(os.pathsep)]
+  for item in path:
+    potential_executable = os.path.join(item, executable)
+    if os.access(potential_executable, os.F_OK | os.X_OK):
+      return True
+  return False
 
 class UserMetadata(object):
   """

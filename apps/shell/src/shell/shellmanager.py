@@ -348,12 +348,12 @@ class ShellManager(object):
       os.mkdir(self._delegation_token_dir)
     
     for item in shell.conf.SHELL_TYPES.keys():
-      nice_name = shell.conf.SHELL_TYPES[item].nice_name.get()
-      short_name = shell.conf.SHELL_TYPES[item].short_name.get()
-      shell_types.append({ constants.NICE_NAME: nice_name, constants.KEY_NAME: short_name })
-      command = shell.conf.SHELL_TYPES[item].command.get().split()
-      self._command_by_short_name[short_name] = command
-    
+      command = shell.conf.SHELL_TYPES[item].command.get().strip().split()
+      nice_name = shell.conf.SHELL_TYPES[item].nice_name.get().strip()
+      executable_exists = utils.executable_exists(command)
+      if executable_exists:
+        self._command_by_short_name[item] = command
+      shell_types.append({ constants.NICE_NAME: nice_name, constants.KEY_NAME: item, constants.EXISTS:executable_exists })
     self.shell_types = shell_types
     eventlet.spawn_after(1, self._handle_periodic)
 

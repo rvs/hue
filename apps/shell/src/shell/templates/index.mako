@@ -16,7 +16,11 @@ ${shared.header("Hue Shell", True, shells)}
       <ul>
         % for item in shells:
           <li>
-          <a class="round Button menu_button">${item["niceName"]}</a><span class="hidden">${item["keyName"]}</span>
+          % if item["exists"]:
+            <a class="round Button menu_button">${item["niceName"]}</a><span class="hidden">${item["keyName"]}</span>
+          % else:
+            <a class="round Button disabled">${item["niceName"]}</a>
+          % endif
           </li>
         % endfor
       </ul>
